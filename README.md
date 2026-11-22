@@ -6,15 +6,20 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.4
+
+- **Task creation:** fix navigation to the task's document immediately after creation.
+- **Task details and reminders:** due date edits in task details now update reminders that follow the task's due date right away.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.3
 
 - **Reminders:** reminders that follow a task's due date now update as soon as the date changes.
 - **Task snapshots:** fix pinned status reverting during a snapshot refresh when the pin attribute is missing.
 - **Scheduled AI tasks:** the startup check waits at least one minute, then waits for SiYuan sync to finish before checking schedules.
 - **Task linking:** schedule and timer task pickers show the newest tasks first and mark completed tasks.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.2
 

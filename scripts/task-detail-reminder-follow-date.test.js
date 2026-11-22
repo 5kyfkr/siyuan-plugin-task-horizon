@@ -14,6 +14,15 @@ const slice = (source, from, to) => {
     assert.ok(start >= 0 && end > start, from);
     return source.slice(start, end);
 };
+const updateDateFieldStart = detail.lastIndexOf('const updateDateField = async (field, value) =>');
+const updateDateRangeStart = detail.indexOf('const updateDateRange = async (left, right) =>', updateDateFieldStart);
+const loadHubSchedulesStart = detail.indexOf('const loadHubSchedules = async', updateDateRangeStart);
+assert.ok(updateDateFieldStart >= 0 && updateDateRangeStart > updateDateFieldStart && loadHubSchedulesStart > updateDateRangeStart,
+    'task detail date save handlers must remain extractable');
+assert.match(detail.slice(updateDateFieldStart, updateDateRangeStart), /source: 'task-detail-time-hub-date'[\s\S]*broadcast: true/,
+    'single-date edits in task detail must broadcast committed date attributes to integrations');
+assert.match(detail.slice(updateDateRangeStart, loadHubSchedulesStart), /source: 'task-detail-time-hub-range'[\s\S]*broadcast: true/,
+    'date-range edits in task detail must broadcast committed date attributes to integrations');
 const date = '2026-11-25';
 class TestDate extends Date {
     constructor(...args) { super(...(args.length ? args : ['2026-11-21T12:00:00'])); }

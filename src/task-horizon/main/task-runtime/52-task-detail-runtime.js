@@ -7622,7 +7622,7 @@
                     const commitPromise = window.tmUpdateTaskDates(boundId, patch, {
                         source: 'task-detail-time-hub-date',
                         refresh: true,
-                        broadcast: false,
+                        broadcast: true,
                         background: true,
                         skipDetailPatch: true,
                         allowMountedInactive: true,
@@ -7656,7 +7656,7 @@
                     const commitPromise = window.tmUpdateTaskDates(boundId, patch, {
                         source: 'task-detail-time-hub-range',
                         refresh: true,
-                        broadcast: false,
+                        broadcast: true,
                         background: true,
                         skipDetailPatch: true,
                         allowMountedInactive: true,

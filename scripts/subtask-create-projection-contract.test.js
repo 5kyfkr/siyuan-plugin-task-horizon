@@ -41,6 +41,43 @@ assert.match(
     /function __tmIsOptimisticTempTaskId[\s\S]*pendingInsertedTasks\?\.\[tid\][\s\S]*identity\.status[\s\S]*'committed'/,
     'pending guards must still protect pre-generated task IDs until the create mutation commits'
 );
+const optimisticIdGuardSource = segment(
+    taskCreate,
+    'function __tmIsOptimisticTempTaskId(',
+    'function __tmGetOptimisticTaskIdRemapStore(',
+);
+const createOptimisticIdGuard = (state, identities, resolveId = (id) => id) => new Function(
+    'state',
+    'globalThis',
+    '__tmResolveOptimisticTaskId',
+    `${optimisticIdGuardSource}; return __tmIsOptimisticTempTaskId;`,
+)(state, { __tmTaskIdentity: { get: (id) => identities[id] || null } }, resolveId);
+const committedStableId = '20261122160512-eolppfv';
+const committedIdGuard = createOptimisticIdGuard(
+    { pendingInsertedTasks: { [committedStableId]: { id: committedStableId } } },
+    { [committedStableId]: { status: 'cache', realId: committedStableId, blockId: committedStableId } },
+);
+assert.equal(committedIdGuard(committedStableId), false,
+    'a still-cached pending projection must not block navigation once its stable block ID is committed');
+const queuedStableId = '20261122160513-queued01';
+const queuedIdGuard = createOptimisticIdGuard(
+    { pendingInsertedTasks: { [queuedStableId]: { id: queuedStableId } } },
+    { [queuedStableId]: { status: 'queued', tempId: queuedStableId } },
+);
+assert.equal(queuedIdGuard(queuedStableId), true,
+    'a pre-generated block ID must remain guarded while its create mutation is queued');
+const remappedIdGuard = createOptimisticIdGuard(
+    { pendingInsertedTasks: { 'tm_tmp_task_pending': { id: 'tm_tmp_task_pending' } } },
+    { 'tm_tmp_task_pending': { status: 'committed', realId: committedStableId, blockId: committedStableId } },
+    (id) => id === 'tm_tmp_task_pending' ? committedStableId : id,
+);
+assert.equal(remappedIdGuard('tm_tmp_task_pending'), false,
+    'a temporary alias that already resolves to its committed block must no longer be guarded');
+assert.equal(createOptimisticIdGuard(
+    { pendingInsertedTasks: {} },
+    {},
+)('tm_tmp_task_pending'), true,
+'a genuinely unresolved temporary task ID must remain guarded');
 const detachRuntime = taskList.slice(
     taskList.indexOf('window.tmDetachSubtaskFromParent = async function'),
     taskList.indexOf('function __tmRollbackContentPatchLocally'),

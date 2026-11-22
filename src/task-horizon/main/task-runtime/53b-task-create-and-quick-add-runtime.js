@@ -238,14 +238,19 @@
     function __tmIsOptimisticTempTaskId(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
-        if (tid.startsWith('tm_tmp_')) return true;
+        const isSyntheticTempId = tid.startsWith('tm_tmp_');
+        if (!isSyntheticTempId && !state.pendingInsertedTasks?.[tid]) return false;
         try {
             const identity = globalThis.__tmTaskIdentity?.get?.(tid);
-            return !!state.pendingInsertedTasks?.[tid]
-                && !!identity
-                && String(identity.status || '').trim() !== 'committed';
+            const committedId = String(identity?.realId || identity?.blockId || '').trim();
+            if (committedId && !committedId.startsWith('tm_tmp_')) return false;
+            const identityStatus = identity ? String(identity.status || '').trim() : '';
+            if (identityStatus === 'committed') return false;
+            const resolvedId = String(__tmResolveOptimisticTaskId(tid) || '').trim();
+            if (resolvedId && resolvedId !== tid) return resolvedId.startsWith('tm_tmp_');
+            return isSyntheticTempId || (!!state.pendingInsertedTasks?.[tid] && !!identity);
         } catch (e) {
-            return false;
+            return isSyntheticTempId;
         }
     }
 
