@@ -308,6 +308,7 @@ context.SettingsStore.data.customBoardSets = [];
         __tmIsMobileDevice: () => false,
         __tmHostUsesMobileUI: () => false,
         __tmGetProcrastinationMetricsForTasks: () => ({}),
+        __TM_PROCRASTINATION_CONFIG: {},
         __tmBuildHomepageProjects: () => ({}),
         __tmGetActiveCustomBoardSet: () => ({ id: 'set-work', name: '工作看板' }),
     });

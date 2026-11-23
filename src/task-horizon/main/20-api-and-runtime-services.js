@@ -14397,7 +14397,7 @@
     function __tmIsMultiSelectSupportedView(mode) {
         const viewMode = String(mode || (state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : state.viewMode)) || '').trim();
         if (viewMode === 'whiteboard') return __tmIsWhiteboardAllTabsStreamMode();
-        return viewMode === 'list' || viewMode === 'checklist' || viewMode === 'timeline' || viewMode === 'kanban';
+        return viewMode === 'list' || viewMode === 'checklist' || viewMode === 'timeline' || viewMode === 'kanban' || viewMode === 'comboBoard';
     }
 
     function __tmNormalizeMultiSelectedTaskIds(ids) {
@@ -15013,6 +15013,18 @@
     const __TM_POINTS_PENALTY_TICK_MS = 30 * 1000;
     const __TM_PROCRASTINATION_RESCHEDULE_LEDGER_KEY = 'tm_procrastination_reschedule_ledger_v1';
     const __TM_PROCRASTINATION_WINDOW_DAYS = 30;
+    const __TM_PROCRASTINATION_WINDOW_OPTIONS = Object.freeze([7, 14, 30]);
+    // 0 = tasks without a deadline never count as dragging.
+    const __TM_PROCRASTINATION_PROTECT_OPTIONS = Object.freeze([0, 3, 7, 14, 30]);
+    const __TM_PROCRASTINATION_PROTECT_DEFAULT = 30;
+    // Every score constant lives here; tabs and the homepage read this one definition.
+    const __TM_PROCRASTINATION_CONFIG = Object.freeze({
+        weights: Object.freeze({ age: 40, over: 25, resched: 15, flow: 20, penalty: 20 }),
+        ageHalfDays: 15,    // average delay of 15 days ≈ 63% of the "how long" part
+        reschedCap: 5,      // reschedules ÷ max(5, open tasks / 4)
+        penaltyCap: 5,      // unchanged from the previous formula
+        styleDragLine: 1 - Math.exp(-30 / 15), // 30-day average effective delay threshold on the "how long" ratio
+    });
     const __TM_PROCRASTINATION_LEDGER_KEEP_DAYS = 120;
     let __tmPointsPenaltyLedgerCache = null;
     let __tmProcrastinationRescheduleLedgerCache = null;
@@ -15637,7 +15649,7 @@
     function __tmCountRecentPointsPenaltyRecords(taskIds, nowTs) {
         const ids = taskIds instanceof Set ? taskIds : new Set();
         if (!ids.size) return 0;
-        const cutoff = Number(nowTs || Date.now()) - (__TM_PROCRASTINATION_WINDOW_DAYS * 86400000);
+        const cutoff = Number(nowTs || Date.now()) - (__tmGetProcrastinationWindowDays() * 86400000);
         const ledger = __tmLoadPointsPenaltyLedger();
         const records = ledger?.records && typeof ledger.records === 'object' ? Object.values(ledger.records) : [];
         return records.filter((item) => {
@@ -15652,7 +15664,7 @@
     function __tmCountRecentProcrastinationReschedules(taskIds, nowTs) {
         const ids = taskIds instanceof Set ? taskIds : new Set();
         if (!ids.size) return 0;
-        const cutoff = Number(nowTs || Date.now()) - (__TM_PROCRASTINATION_WINDOW_DAYS * 86400000);
+        const cutoff = Number(nowTs || Date.now()) - (__tmGetProcrastinationWindowDays() * 86400000);
         const ledger = __tmLoadProcrastinationRescheduleLedger();
         return (Array.isArray(ledger.records) ? ledger.records : []).filter((item) => {
             if (!item || typeof item !== 'object') return false;
@@ -15675,22 +15687,115 @@
         return !!SettingsStore?.data?.enablePointsRewardIntegration && !!SettingsStore?.data?.enablePointsPenaltyIntegration;
     }
 
+    function __tmGetProcrastinationWindowDays() {
+        const value = Math.round(Number(SettingsStore?.data?.procrastinationWindowDays));
+        return __TM_PROCRASTINATION_WINDOW_OPTIONS.includes(value) ? value : __TM_PROCRASTINATION_WINDOW_DAYS;
+    }
+
+    function __tmGetProcrastinationProtectDays() {
+        const raw = SettingsStore?.data?.procrastinationNoDueProtectDays;
+        const value = Math.round(Number(raw));
+        return raw !== undefined && raw !== null && raw !== '' && __TM_PROCRASTINATION_PROTECT_OPTIONS.includes(value)
+            ? value
+            : __TM_PROCRASTINATION_PROTECT_DEFAULT;
+    }
+
+    // Whole days from fromKey to toKey (YYYY-MM-DD, local calendar); NaN if either is invalid.
+    function __tmProcrastinationDayDiff(fromKey, toKey) {
+        const parse = (key) => {
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || '').trim());
+            return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12).getTime() : NaN;
+        };
+        const from = parse(fromKey);
+        const to = parse(toKey);
+        return Number.isFinite(from) && Number.isFinite(to) ? Math.round((to - from) / 86400000) : NaN;
+    }
+
+    // Block creation date. SiYuan resets `created` when a block is copied or moved across documents.
+    function __tmGetTaskCreatedDateKey(task) {
+        if (typeof __tmParseCreatedTs !== 'function') return '';
+        let ts = __tmParseCreatedTs(String(task?.created || '').trim());
+        if (!ts) {
+            const idMatch = /^(\d{14})-/.exec(String(task?.id || '').trim());
+            if (idMatch) ts = __tmParseCreatedTs(idMatch[1]);
+        }
+        return ts > 0 ? __tmNormalizeProcrastinationDateKey(new Date(ts)) : '';
+    }
+
+    function __tmIsProcrastinationRecurringTask(task) {
+        try {
+            if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) return true;
+            if (typeof __tmGetTaskRepeatRule === 'function') return __tmGetTaskRepeatRule(task)?.enabled === true;
+        } catch (e) {}
+        return false;
+    }
+
+    // Actual days an open task has been dragging, or null. Callers exclude done, canceled and done-parent tasks.
+    // { days, overdue, age }: overdue → days past the deadline; otherwise days past the protection period.
+    function __tmGetTaskDelayDays(task, todayKey, options = {}) {
+        if (!task || typeof task !== 'object' || !todayKey) return null;
+        if (__tmIsProcrastinationRecurringTask(task)) return null;
+        const startKey = __tmNormalizeProcrastinationDateKey(task.startDate || task.start_date || '');
+        if (startKey && __tmProcrastinationDayDiff(todayKey, startKey) > 0) return null;
+        const dueKey = __tmNormalizeProcrastinationDateKey(task.completionTime || task.completion_time || '');
+        if (dueKey) {
+            const late = __tmProcrastinationDayDiff(dueKey, todayKey);
+            return late > 0 ? { days: late, overdue: true, age: late } : null;
+        }
+        const protectDays = Number.isFinite(Number(options?.protectDays))
+            ? Number(options.protectDays)
+            : __tmGetProcrastinationProtectDays();
+        if (!protectDays) return null;
+        const createdKey = __tmGetTaskCreatedDateKey(task);
+        const age = createdKey ? __tmProcrastinationDayDiff(createdKey, todayKey) : NaN;
+        return Number.isFinite(age) && age > protectDays ? { days: age - protectDays, overdue: false, age } : null;
+    }
+
     function __tmGetProcrastinationMetricsForTasks(taskList, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const todayKey = __tmNormalizeProcrastinationDateKey(opts.todayKey || new Date());
         const nowTs = Number.isFinite(Number(opts.nowTs)) ? Number(opts.nowTs) : Date.now();
+        const topLimit = Math.max(0, Math.min(50, Math.round(Number(opts.topLimit) || 0)));
+        const windowDays = __tmGetProcrastinationWindowDays();
+        const protectDays = __tmGetProcrastinationProtectDays();
+        const cfg = __TM_PROCRASTINATION_CONFIG;
+        const clamp01 = (value) => __tmClampProcrastinationNumber(value, 0, 1);
+        const inWindow = (key) => {
+            const diff = key ? __tmProcrastinationDayDiff(key, todayKey) : NaN;
+            return Number.isFinite(diff) && diff >= 0 && diff < windowDays;
+        };
         const tasks = __tmFlattenProcrastinationTasks(Array.isArray(taskList) ? taskList : []);
         const relationIndex = __tmBuildProcrastinationTaskRelationIndex(tasks);
         const doneParentMemo = new Map();
         const taskIds = new Set();
+        const dragging = [];
         let dueTaskCount = 0;
         let overdueCount = 0;
+        let openCount = 0;
+        let delaySum = 0;
+        let createdInWindow = 0;
+        let doneInWindow = 0;
         tasks.forEach((task) => {
             if (!task || typeof task !== 'object') return;
             const taskId = String(task.id || '').trim();
-            if (__tmIsTaskDoneEffective(task) || __tmIsTaskCanceled(task)) return;
+            const recurring = __tmIsProcrastinationRecurringTask(task);
+            if (!recurring && inWindow(__tmGetTaskCreatedDateKey(task))) createdInWindow += 1;
+            const done = __tmIsTaskDoneEffective(task);
+            if (done || __tmIsTaskCanceled(task)) {
+                if (done && !recurring && typeof __tmGetTaskCompletedAtDateKey === 'function'
+                    && inWindow(__tmGetTaskCompletedAtDateKey(task))) doneInWindow += 1;
+                return;
+            }
             if (__tmProcrastinationTaskHasDoneParent(task, relationIndex, doneParentMemo)) return;
             if (taskId) taskIds.add(taskId);
+            if (!recurring) {
+                openCount += 1;
+                const delay = __tmGetTaskDelayDays(task, todayKey, { protectDays });
+                if (delay) {
+                    delaySum += delay.days;
+                    dragging.push({ task, ...delay });
+                }
+            }
             const dueKey = __tmNormalizeProcrastinationDateKey(task.completionTime || task.completion_time || '');
             if (!dueKey || !todayKey) return;
             dueTaskCount += 1;
@@ -15701,21 +15806,22 @@
         const penaltyEnabled = __tmIsProcrastinationPenaltyEnabled();
         const penaltyCount = penaltyEnabled ? __tmCountRecentPointsPenaltyRecords(taskIds, nowTs) : 0;
         const rescheduleCount = __tmCountRecentProcrastinationReschedules(taskIds, nowTs);
-        const overdueRatio = dueTaskCount > 0 ? __tmClampProcrastinationNumber(overdueCount / dueTaskCount, 0, 1) : 0;
-        const scoreParts = [
-            { weight: 35, ratio: overdueRatio },
-            { weight: 20, ratio: __tmClampProcrastinationNumber(rescheduleCount / 5, 0, 1) },
+        const overdueRatio = dueTaskCount > 0 ? clamp01(overdueCount / dueTaskCount) : 0;
+        const stalled = openCount > 0 && createdInWindow === 0 && doneInWindow === 0;
+        const parts = [
+            { key: 'age', weight: cfg.weights.age, ratio: openCount ? clamp01(1 - Math.exp(-(delaySum / openCount) / cfg.ageHalfDays)) : 0 },
+            { key: 'over', weight: cfg.weights.over, ratio: overdueRatio },
+            { key: 'resched', weight: cfg.weights.resched, ratio: clamp01(rescheduleCount / Math.max(cfg.reschedCap, openCount / 4)) },
+            { key: 'flow', weight: cfg.weights.flow, ratio: stalled ? 1 : (createdInWindow > 0 ? clamp01(1 - doneInWindow / createdInWindow) : 0) },
         ];
-        if (penaltyEnabled) {
-            scoreParts.push({ weight: 20, ratio: __tmClampProcrastinationNumber(penaltyCount / 5, 0, 1) });
-        }
-        const scoreWeight = scoreParts.reduce((sum, item) => sum + item.weight, 0);
-        const rawScore = scoreParts.reduce((sum, item) => sum + item.weight * item.ratio, 0);
-        const score = scoreWeight > 0
+        if (penaltyEnabled) parts.push({ key: 'penalty', weight: cfg.weights.penalty, ratio: clamp01(penaltyCount / cfg.penaltyCap) });
+        const scoreWeight = parts.reduce((sum, item) => sum + item.weight, 0);
+        const rawScore = parts.reduce((sum, item) => sum + item.weight * item.ratio, 0);
+        const score = scoreWeight > 0 && (openCount > 0 || dueTaskCount > 0)
             ? Math.max(0, Math.min(100, Math.round((rawScore / scoreWeight) * 100)))
             : 0;
         const level = __tmGetProcrastinationLevel(score);
-        return {
+        const result = {
             score,
             level: level.key,
             levelLabel: level.label,
@@ -15725,8 +15831,28 @@
             penaltyCount,
             penaltyEnabled,
             rescheduleCount,
-            windowDays: __TM_PROCRASTINATION_WINDOW_DAYS,
+            windowDays,
+            draggingCount: dragging.length,
+            avgDelayDays: dragging.length ? Math.round(dragging.reduce((sum, item) => sum + item.age, 0) / dragging.length) : 0,
+            createdInWindow,
+            doneInWindow,
+            stalled,
+            parts: parts.map((item) => ({ key: item.key, weight: item.weight, ratio: item.ratio })),
         };
+        if (topLimit > 0) {
+            result.topDragging = dragging
+                .sort((a, b) => b.days - a.days)
+                .slice(0, topLimit)
+                .map((item) => ({
+                    id: String(item.task.id || '').trim(),
+                    title: String(item.task.content || item.task.title || '').trim(),
+                    docId: String(item.task.root_id || item.task.docId || '').trim(),
+                    days: item.days,
+                    age: item.age,
+                    overdue: item.overdue === true,
+                }));
+        }
+        return result;
     }
 
     function __tmCollectProcrastinationTasksForDoc(docId) {
@@ -15742,7 +15868,15 @@
     function __tmGetProcrastinationMetricsForDoc(docId) {
         return __tmGetProcrastinationMetricsForTasks(__tmCollectProcrastinationTasksForDoc(docId), {
             todayKey: __tmNormalizeProcrastinationDateKey(new Date()),
+            topLimit: 1,
         });
+    }
+
+    function __tmFormatProcrastinationDelayReason(item) {
+        const days = Math.max(0, Math.round(Number(item?.age) || 0));
+        return item?.overdue === true
+            ? __tmT("task.procrastinationReasonOverdue", { days })
+            : __tmT("task.procrastinationReasonIdle", { days });
     }
 
     function __tmBuildDocProcrastinationStyle(metrics) {
@@ -15758,13 +15892,19 @@
     function __tmFormatProcrastinationTip(metrics) {
         const m = (metrics && typeof metrics === 'object') ? metrics : {};
         const score = Math.max(0, Math.min(100, Math.round(Number(m.score) || 0)));
-        const penaltyText = m.penaltyEnabled === false ? '' : __tmT("task.deducted", { value1: Number(m.penaltyCount) || 0 });
-        const dueTaskCount = Math.max(0, Math.round(Number(m.dueTaskCount) || 0));
-        const overdueCount = Math.max(0, Math.round(Number(m.overdueCount) || 0));
-        const overduePercent = dueTaskCount > 0
-            ? Math.max(0, Math.min(100, Math.round(Number(m.overduePercent) || (overdueCount / dueTaskCount) * 100)))
-            : 0;
-        return __tmT("task.delayScoreOverduePostponed", { score: score, value2: String(m.levelLabel || __tmGetProcrastinationLevel(score).label || ''), overduePercent: overduePercent, overdueCount: overdueCount, dueTaskCount: dueTaskCount, penaltyText: penaltyText, value7: Number(m.rescheduleCount) || 0 });
+        const count = (value) => Math.max(0, Math.round(Number(value) || 0));
+        const lines = [
+            __tmT("task.procrastinationTipScore", { score, level: String(m.levelLabel || __tmGetProcrastinationLevel(score).label || '') }),
+            __tmT("task.procrastinationTipDragging", { draggingCount: count(m.draggingCount), overdueCount: count(m.overdueCount) }),
+            __tmT("task.procrastinationTipFlow", { windowDays: count(m.windowDays) || __tmGetProcrastinationWindowDays(), createdCount: count(m.createdInWindow), doneCount: count(m.doneInWindow) }),
+        ];
+        const top = Array.isArray(m.topDragging) ? m.topDragging[0] : null;
+        if (top) {
+            const rawTitle = String(top.title || '').replace(/\s+/g, ' ').trim() || __tmT("kernel.untitledTask");
+            const title = rawTitle.length > 30 ? `${rawTitle.slice(0, 30)}…` : rawTitle;
+            lines.push(__tmT("task.procrastinationTipTop", { title, reason: __tmFormatProcrastinationDelayReason(top) }));
+        }
+        return lines.join('\n');
     }
 
     function __tmHandleProcrastinationScheduleUpdated(event) {
@@ -15794,6 +15934,7 @@
 
     globalThis.__tmGetProcrastinationMetricsForTasks = __tmGetProcrastinationMetricsForTasks;
     globalThis.__tmGetProcrastinationMetricsForDoc = __tmGetProcrastinationMetricsForDoc;
+    globalThis.__tmProcrastinationConfig = __TM_PROCRASTINATION_CONFIG;
     globalThis.__tmBuildDocProcrastinationStyle = __tmBuildDocProcrastinationStyle;
     globalThis.__tmFormatProcrastinationTip = __tmFormatProcrastinationTip;
     globalThis.__tmRecordTaskProcrastinationDateReschedule = __tmRecordTaskProcrastinationDateReschedule;
@@ -18594,11 +18735,29 @@ if (opts.refresh === false) return;
             containerWidth: width,
             containerHeight: height,
             todayKey,
-            procrastinationMetrics: __tmGetProcrastinationMetricsForTasks(homepageTasks, { todayKey }),
+            procrastinationMetrics: __tmGetProcrastinationMetricsForTasks(homepageTasks, { todayKey, topLimit: 6 }),
+            getDocProcrastinationMetrics: (() => {
+                // One context per homepage refresh: project cards and the work-style quadrant share these results.
+                const memo = new Map();
+                return (docId) => {
+                    const id = String(docId || '').trim();
+                    if (!id) return null;
+                    if (!memo.has(id)) {
+                        let value = null;
+                        try { value = __tmGetProcrastinationMetricsForDoc(id); } catch (e) { value = null; }
+                        memo.set(id, value);
+                    }
+                    return memo.get(id);
+                };
+            })(),
+            procrastinationConfig: __TM_PROCRASTINATION_CONFIG,
             projects: __tmBuildHomepageProjects(homepageTasks, todayKey),
             animateOnMount: state.__tmHomepageNextMountAnimate !== false,
             onOpenTask(taskId) {
                 try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
+            },
+            onTaskContextMenu(event, taskId) {
+                try { window.tmShowTaskContextMenu?.(event, taskId); } catch (e) {}
             },
         };
     }

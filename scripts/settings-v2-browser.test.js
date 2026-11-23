@@ -652,7 +652,7 @@ async function checkRecommendedRules(page) {
         }
         await page.waitForFunction(() => __settingsTest.searchIndexReady());
         const expected = await page.evaluate(() => __settingsTest.state.settingsSearchGeneratedEntries.filter((entry) => entry.rendered).map((entry) => [entry.key, entry.title]));
-        assert.equal(subpageCount, 30, 'v3 exposes thirty secondary pages after adding CalDAV upload');
+        assert.equal(subpageCount, 31, 'v3 exposes thirty-one secondary pages after adding procrastination settings');
         const missing = expected.filter(([key]) => !rows.has(key));
         console.log('COVERAGE', rows.size, 'rows;', missing.length, 'missing', JSON.stringify(missing));
         assert.deepEqual(missing, [], 'every indexed production setting must remain reachable');
@@ -711,6 +711,29 @@ async function checkRecommendedRules(page) {
         });
         assert.deepEqual(badSearchRoutes, [], 'each search result must open the page containing its control');
         await page.evaluate(() => tmClearSettingsSearch());
+        const procrastinationDefaults = await page.evaluate(() => ({
+            windowDays: __settingsTest.SettingsStore.data.procrastinationWindowDays,
+            noDueProtectDays: __settingsTest.SettingsStore.data.procrastinationNoDueProtectDays
+        }));
+        assert.deepEqual(procrastinationDefaults, { windowDays: 30, noDueProtectDays: 30 }, 'both procrastination windows default to 30 days');
+        await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-procrastination'));
+        const procrastinationPanel = page.locator('.tm-settings-panel[data-tm-settings-search-tab="procrastination"]');
+        assert.deepEqual(await procrastinationPanel.locator('select').evaluateAll(nodes => nodes.map(node => node.value)), ['30', '30'], 'both 30-day defaults are selected in the rules settings');
+        const procrastinationGoTo = procrastinationPanel.locator('.tm-setting-field-desc button');
+        assert.equal(await procrastinationGoTo.count(), 2, 'both related settings retain their Go to buttons');
+        await procrastinationGoTo.nth(0).click();
+        const penaltyTarget = page.locator('.tm-settings-search-hit[data-tm-settings-search-key="points-penalty-enabled"]');
+        await penaltyTarget.waitFor();
+        assert.equal(await page.locator('.tm-settings-v3').getAttribute('data-settings-page'), 'calendar');
+        assert.equal(await page.locator('.tm-settings-v3').getAttribute('data-settings-subpage'), 'c-focus');
+        assert.equal(await penaltyTarget.evaluate(node => node.contains(document.activeElement)), true, 'the penalty button focuses its exact setting row');
+        await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-procrastination'));
+        await page.locator('.tm-settings-panel[data-tm-settings-search-tab="procrastination"] .tm-setting-field-desc button').nth(1).click();
+        const tintTarget = page.locator('.tm-settings-search-hit[data-tm-settings-search-key="procrastination-tab-tint"]');
+        await tintTarget.waitFor();
+        assert.equal(await page.locator('.tm-settings-v3').getAttribute('data-settings-page'), 'view');
+        assert.equal(await page.locator('.tm-settings-v3').getAttribute('data-settings-subpage'), 'v-start');
+        assert.equal(await tintTarget.evaluate(node => node.contains(document.activeElement)), true, 'the tint button focuses its exact setting row');
         // Conditional AI fields and restricted/mobile hosts must retain their production settings.
         for (const scenario of ['legacy', 'mobile-restricted']) {
             await page.evaluate(scenario => {

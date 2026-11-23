@@ -170,6 +170,7 @@
         rules: __tmT("settings.rules"),
         quadrant: __tmT("task.quadrants"),
         priority: __tmT("task.priorityScore"),
+        procrastination: __tmT("homepage.procrastinationScore"),
         benefits: __tmT("task.featureBenefits"),
         about: __tmT("settings.about")
     });
@@ -804,7 +805,7 @@
         try { state.settingsModal?.querySelector?.('[data-tm-settings-search-input]')?.focus?.(); } catch (e) {}
     };
 
-    window.tmOpenSettingsSearchResult = function(tab, section, key) {
+    window.tmOpenSettingsSearchResult = function(tab, section, key, routePage, routeSub) {
         __tmFlushSettingsInputs();
         const targetTab = __tmNormalizeSettingsSearchTab(tab);
         const pending = {
@@ -817,7 +818,7 @@
         state.settingsSearchActiveIndex = -1;
         state.settingsSearchPendingTarget = pending;
         const entry = __tmGetSettingsSearchEntries().find((item) => item.key === pending.key);
-        const route = entry?.route || __tmSettingsV3Route(targetTab, pending.section);
+        const route = routePage ? { page: String(routePage).trim(), sub: String(routeSub || '').trim() } : entry?.route || __tmSettingsV3Route(targetTab, pending.section);
         const targetPage = route.page;
         const previousPage = __tmSettingsV2CurrentPage();
         (state.settingsV3Subpages ||= {})[targetPage] = route.sub;
@@ -2439,6 +2440,7 @@
                             <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">${__tmT("settings.rules2")}</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">${__tmT("settings.quadrants")}</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">${__tmT("task.priorityScore3")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'procrastination' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="procrastination">${__tmT("homepage.procrastinationScore")}</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'benefits' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="benefits">${__tmT("settings.featureBenefits")}</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'about' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="about">${__tmT("settings.about2")}</button>
                             ` : `
@@ -2565,6 +2567,37 @@
                             </div>
                         </div>
                     ` : ''}
+
+                    ${activeTab === 'procrastination' ? (() => {
+                        const windowDays = [7, 14, 30].includes(Number(SettingsStore.data.procrastinationWindowDays)) ? Number(SettingsStore.data.procrastinationWindowDays) : 30;
+                        const protectDays = [0, 3, 7, 14, 30].includes(Number(SettingsStore.data.procrastinationNoDueProtectDays)) ? Number(SettingsStore.data.procrastinationNoDueProtectDays) : 30;
+                        const option = (value, current, label) => `<option value="${value}" ${value === current ? 'selected' : ''}>${esc(label)}</option>`;
+                        const goTo = (page, sub, tab, section, key) => `<button type="button" class="b3-button b3-button--text" onclick="tmOpenSettingsSearchResult('${tab}','${section}','${key}','${page}','${sub}')">${__tmT("settings.procrastinationGoTo")}</button>`;
+                        return `
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('procrastination', __tmT("homepage.procrastinationScore"), __tmT("settings.procrastinationScoreDesc"))}>
+                            <div class="tm-settings-section-desc">${__tmT("settings.procrastinationScoreDesc")}</div>
+                            ${renderSingleFieldSetting(
+                                __tmT("settings.procrastinationWindow"),
+                                __tmT("settings.procrastinationWindowDesc"),
+                                `<select class="b3-select" onchange="updateProcrastinationWindowDays(this.value)" style="width:180px;">
+                                    ${[7, 14, 30].map((days) => option(days, windowDays, __tmT("homepage.days", { days }))).join('')}
+                                </select>`,
+                                { style: 'margin-bottom:10px;' }
+                            )}
+                            ${renderSingleFieldSetting(
+                                __tmT("settings.procrastinationNoDue"),
+                                __tmT("settings.procrastinationNoDueDesc"),
+                                `<select class="b3-select" onchange="updateProcrastinationNoDueProtectDays(this.value)" style="width:180px;">
+                                    ${[3, 7, 14, 30].map((days) => option(days, protectDays, __tmT("settings.procrastinationNoDueAfter", { days }))).join('')}
+                                    ${option(0, protectDays, __tmT("settings.procrastinationNoDueOff"))}
+                                </select>`,
+                                { style: 'margin-bottom:10px;' }
+                            )}
+                            <div class="tm-setting-field-desc" style="margin-bottom:6px;">${__tmT("settings.procrastinationPenaltyNote")} ${goTo('calendar', 'c-focus', 'main', 'tomato', 'points-penalty-enabled')}</div>
+                            <div class="tm-setting-field-desc" style="margin-bottom:10px;">${__tmT("settings.procrastinationTintNote")} ${goTo('view', 'v-start', 'main', 'layout', 'procrastination-tab-tint')}</div>
+                            <div class="tm-setting-field-desc" style="padding-top:8px;border-top:1px solid var(--tm-border-color);">${__tmT("settings.procrastinationFormula")}</div>
+                        </div>`;
+                    })() : ''}
 
                     ${activeTab === 'about' ? `
                         ${__tmRenderAboutSettingsPanel()}
@@ -2941,7 +2974,7 @@
                             __tmT("settings.tintTabsByDelayScore"),
                             __tmT("settings.whenEnabledDocumentTabsAreTintedRedSlightlyBy"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabProcrastinationTintEnabled !== false ? 'checked' : ''} onchange="updateDocTabProcrastinationTintEnabled(this.checked)">`,
-                            { style: 'margin-bottom:10px;' }
+                            { style: 'margin-bottom:10px;', key: 'procrastination-tab-tint' }
                         )}
                         ${!__tmIsRuntimeMobileClient() ? `
                         ${renderSingleSwitchSetting(
@@ -3610,7 +3643,8 @@
                             ${renderSingleSwitchSetting(
                                 __tmT("settings.enableOverdueTaskPenalties"),
                                 __tmT("settings.checksUnfinishedTasksAtTheConfiguredTimesSupportsDue"),
-                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsPenaltyIntegration ? 'checked' : ''} ${SettingsStore.data.enablePointsRewardIntegration ? '' : 'disabled'} onchange="updateEnablePointsPenaltyIntegration(this.checked)">`
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsPenaltyIntegration ? 'checked' : ''} ${SettingsStore.data.enablePointsRewardIntegration ? '' : 'disabled'} onchange="updateEnablePointsPenaltyIntegration(this.checked)">`,
+                                { key: 'points-penalty-enabled' }
                             )}
                             <div style="margin-top:10px;opacity:${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? 1 : 0.6};">
                                 ${renderSingleFieldSetting(

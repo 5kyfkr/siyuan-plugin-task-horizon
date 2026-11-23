@@ -4,6 +4,12 @@ const path = require('node:path');
 const vm = require('./i18n-vm-fixture');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'homepage.js'), 'utf8');
+assert.match(source, /\.tm-homepage-trend-legend-item::before \{[^}]*top:\s*50%;[^}]*transform:\s*translateY\(-50%\);/,
+    'trend legend lines must be centered against their labels');
+assert.match(source, /--tm-home-trend-created-color:\s*color-mix\(in srgb, var\(--tm-home-text-muted\) 58%, var\(--tm-home-surface\) 42%\)/,
+    'the created trend line must use a softened gray');
+assert.match(source, /\.tm-homepage-trend-created \{[^}]*stroke:\s*var\(--tm-home-trend-created-color\)/,
+    'the created trend series must share the legend gray');
 const observers = [];
 class MockElement {
     constructor() {

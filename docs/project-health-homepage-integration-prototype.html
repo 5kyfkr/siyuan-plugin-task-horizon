@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拖延分升级 · 精简版 · 原型</title>
+<style>
+/* ============================================================
+   原型说明（精简版，对应 docs/procrastination-score-integration-plan-2026-11-23.md）
+   - 只升级现有拖延分，不新增模块、不新增评分
+   - 文档页签：沿用拖延底色，只换算法与提示文案
+   - 项目进度：统计行末尾加「拖延 N」，悬停看构成
+   - 完成摘要：今日完成补计划数；新增做事风格四象限；拖延分换算法
+   - 完成趋势：固定叠加「新增」曲线
+   - 风险提醒：新增「拖延」页；点击打开任务，右键 / 长按用现有任务菜单处理
+   - 拖延程度只用红色深浅表示（与插件现有拖延分一致），不用四色
+   模拟数据，今天固定为 2026-11-22
+   ============================================================ */
+:root {
+    --tm-home-bg: #f4f5f9;
+    --tm-home-surface: #ffffff;
+    --tm-home-surface-alt: #f7f8fb;
+    --tm-home-text: #1f2329;
+    --tm-home-text-muted: #8a8f99;
+    --tm-home-border: #e5e7ee;
+    --tm-home-border-soft: rgba(229, 231, 238, .7);
+    --tm-home-accent: #5b6cff;
+    --tm-home-accent-soft: rgba(91, 108, 255, .1);
+    --tm-home-success: #34a853;
+    --tm-home-warning: #f9ab00;
+    --tm-home-danger: #ef4444;
+    --tm-home-new: #f2711c;
+    --tm-home-card-radius: 12px;
+    --tm-home-gap: 16px;
+    --tm-home-shadow: 0 8px 20px rgba(15, 23, 42, .045);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #e9ebf2; color: var(--tm-home-text); font-size: 13px; line-height: 1.5; padding: 24px 16px 64px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; }
+.proto-note { background: #fffbe8; border: 1px solid #f3e2a4; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; color: #6b5a1e; font-size: 12.5px; }
+.proto-note b { color: #4a3d0e; }
+.proto-note .ctl { display: inline-flex; gap: 6px; align-items: center; margin: 6px 14px 0 0; cursor: pointer; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: var(--tm-home-gap); align-items: start; }
+@media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { body { padding: 12px 8px 40px; } }
+
+/* 改动标注（原型专用） */
+.new-tag { display: none; font-size: 10px; font-weight: 600; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; line-height: 15px; }
+body.show-changes .new-tag { display: inline-block; }
+body.show-changes .is-new { outline: 2px dashed #fcd34d; outline-offset: 2px; border-radius: 6px; }
+.same-tag { display: none; font-size: 10px; color: var(--tm-home-text-muted); border: 1px solid var(--tm-home-border); border-radius: 4px; padding: 0 4px; margin-left: 6px; line-height: 15px; font-weight: 400; }
+body.show-changes .same-tag { display: inline-block; }
+
+/* ---------- 外壳与页签 ---------- */
+.shell { background: var(--tm-home-bg); border-radius: 14px; border: 1px solid var(--tm-home-border); overflow: hidden;
+    container: home / inline-size; width: 100%; justify-self: center; transition: width .25s; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--tm-home-surface); border-bottom: 1px solid var(--tm-home-border); }
+.toolbar .title { font-weight: 600; font-size: 14px; }
+.toolbar .grow { flex: 1; }
+.chip { font-size: 12px; color: var(--tm-home-text-muted); padding: 2px 8px; border-radius: 6px; background: var(--tm-home-surface-alt); }
+.tabs { display: flex; gap: 4px; padding: 8px 14px; background: var(--tm-home-surface); border-bottom: 1px solid var(--tm-home-border); flex-wrap: wrap; }
+.tab {
+    padding: 5px 12px; border-radius: 7px; border: 1px solid var(--tm-home-border); white-space: nowrap; font-size: 12.5px; cursor: default;
+    background: color-mix(in srgb, var(--tm-home-danger) var(--mix, 0%), var(--tm-home-surface));
+}
+
+.page { padding: var(--tm-home-gap); display: grid; gap: var(--tm-home-gap); }
+.row2 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--tm-home-gap); }
+.card { background: var(--tm-home-surface); border: 1px solid var(--tm-home-border-soft); border-radius: var(--tm-home-card-radius); padding: 15px 16px; box-shadow: var(--tm-home-shadow); overflow: hidden; }
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.card-title { font-size: 14px; font-weight: 800; }
+.card-desc { font-size: 11px; color: var(--tm-home-text-muted); margin-top: 2px; }
+/* 复用现有 tm-homepage-range-switch 的样子 */
+.range-switch { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--tm-home-border); border-radius: 10px; background: var(--tm-home-surface-alt); flex: none; }
+.range-btn { min-width: 54px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--tm-home-text-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.range-btn.is-active { background: var(--tm-home-accent-soft); color: var(--tm-home-accent); box-shadow: 0 0 0 1px rgba(91,108,255,.25); }
+
+/* ---------- 项目进度卡片（现有结构） ---------- */
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.pcard { border: 1px solid var(--tm-home-border); border-radius: 10px; padding: 11px 12px; background: var(--tm-home-surface); }
+.pcard .top { display: flex; align-items: center; gap: 6px; }
+.pcard .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+.pcard .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .timing { font-size: 11px; color: var(--tm-home-text-muted); }
+.pcard .timing.risk { color: var(--tm-home-danger); }
+.pcard .stats { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--tm-home-text-muted); margin: 6px 0 8px; }
+.pcard .stats .n { color: var(--tm-home-text); font-weight: 600; margin-right: 2px; }
+.pcard .stats .n.over { color: var(--tm-home-danger); }
+.pcard .stats .drag { cursor: help; border-radius: 4px; }
+.pcard .bar { height: 5px; border-radius: 3px; background: var(--tm-home-surface-alt); border: 1px solid var(--tm-home-border); overflow: hidden; }
+.pcard .bar i { display: block; height: 100%; background: var(--c); opacity: .85; }
+.pcard .meta { font-size: 11px; color: var(--tm-home-text-muted); margin-top: 4px; }
+
+/* ---------- 任务状态（现有，不改） ---------- */
+.gauge-total { font-size: 28px; font-weight: 650; }
+.gbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin: 8px 0 10px; }
+.gbar i { display: block; height: 100%; }
+.gstats { display: grid; gap: 4px; font-size: 12px; }
+.gstats div { display: flex; justify-content: space-between; }
+.gstats .d { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+
+/* ---------- 完成摘要（现有摘要卡片样式 + 做事风格格子） ---------- */
+.sum-layout { display: grid; grid-template-columns: minmax(120px, 150px) minmax(170px, 1fr) minmax(130px, .9fr); gap: 12px; align-items: stretch; }
+.tile { border: 1px solid var(--tm-home-border-soft); border-radius: 10px; background: var(--tm-home-surface-alt); padding: 11px 12px 10px; min-width: 0; }
+.sum-main { display: flex; flex-direction: column; justify-content: center; gap: 6px; background: color-mix(in srgb, var(--tm-home-accent) 4%, var(--tm-home-surface-alt)); }
+.sum-main .lab, .row .lab, .style-box .lab { font-size: 11px; font-weight: 700; color: var(--tm-home-text-muted); }
+.sum-main .val { font-size: 34px; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.sum-main .note, .row .note, .style-box .desc { font-size: 11px; color: var(--tm-home-text-muted); }
+.rows { display: grid; gap: 10px; align-content: stretch; }
+.row { display: grid; gap: 4px; }
+.row .val { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.row .val small { font-size: 11.5px; font-weight: 600; color: var(--tm-home-text-muted); margin-left: 3px; }
+/* 沿用现有 .is-procrastination：红色深浅随分数 */
+.row.is-procrastination { border-color: color-mix(in srgb, var(--tm-home-danger) var(--border-mix, 18%), var(--tm-home-border-soft));
+    background: color-mix(in srgb, var(--tm-home-danger) var(--bg-mix, 5%), var(--tm-home-surface-alt)); cursor: help; }
+.row.is-procrastination .val { color: color-mix(in srgb, var(--tm-home-danger) var(--text-mix, 36%), var(--tm-home-text)); }
+
+.style-box { display: flex; flex-direction: column; gap: 6px; }
+.style-box .head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.state-pill { font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 10px; background: var(--tm-home-accent-soft); color: var(--tm-home-accent); white-space: nowrap; }
+.quad { position: relative; flex: 1; min-height: 96px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; font-size: 10.5px; }
+.quad > div { background: var(--tm-home-surface); border-radius: 4px; padding: 3px 5px; color: var(--tm-home-text-muted); }
+.quad > div.hit { background: var(--tm-home-accent-soft); color: var(--tm-home-accent); font-weight: 600; }
+.quad > div:nth-child(2), .quad > div:nth-child(4) { text-align: right; }
+.quad > div:nth-child(3), .quad > div:nth-child(4) { display: flex; align-items: flex-end; }
+.quad > div:nth-child(4) { justify-content: flex-end; }
+.qdot { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; transition: left .3s, top .3s; }
+.qdot.me { width: 12px; height: 12px; background: var(--tm-home-accent); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--tm-home-accent); z-index: 2; }
+.qdot.proj { width: 7px; height: 7px; background: var(--c); opacity: .75; cursor: help; }
+
+/* ---------- 完成趋势 ---------- */
+.legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--tm-home-text-muted); align-items: center; flex: none; }
+.legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-right: 4px; vertical-align: 3px; }
+.trend-sum { font-size: 12px; color: var(--tm-home-text-muted); margin-top: 6px; }
+.trend-sum b { color: var(--tm-home-text); }
+.up { color: var(--tm-home-danger); } .down { color: var(--tm-home-success); }
+svg text { font-family: inherit; }
+
+/* ---------- 风险提醒（现有列表样式） ---------- */
+.list { display: grid; }
+.list-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; text-align: left;
+    padding: 8px 6px; border: 0; border-bottom: 1px dashed var(--tm-home-border); background: transparent; font: inherit; color: inherit; cursor: pointer; border-radius: 6px;
+    -webkit-touch-callout: none; user-select: none; }
+.list-item:last-child { border-bottom: 0; }
+.list-item:hover { background: var(--tm-home-surface-alt); }
+.list-item .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-item .w { display: block; font-size: 11.5px; color: var(--tm-home-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+.badge.danger { color: var(--tm-home-danger); background: color-mix(in srgb, var(--tm-home-danger) 10%, transparent); }
+.badge.warning { color: #b7791f; background: color-mix(in srgb, var(--tm-home-warning) 14%, transparent); }
+.badge.idle { color: var(--tm-home-text-muted); background: var(--tm-home-surface-alt); }
+.list-hint { font-size: 11px; color: var(--tm-home-text-muted); margin-top: 8px; }
+.empty { color: var(--tm-home-text-muted); text-align: center; padding: 16px 0; font-size: 12.5px; }
+
+/* 模拟插件现有任务右键菜单（tm-task-context-menu）的一部分 */
+.ctx { position: fixed; z-index: 100; min-width: 200px; background: #fff; border: 1px solid #e2e4ea; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.2); padding: 6px; font-size: 13px; }
+.ctx .sec { font-size: 11px; color: var(--tm-home-text-muted); padding: 2px 6px 4px; }
+.ctx .dates { display: flex; gap: 4px; padding: 0 4px 6px; border-bottom: 1px solid #eef0f4; margin-bottom: 4px; }
+.ctx .dates button { flex: 1; border: 1px solid #e5e7ee; background: #fff; border-radius: 6px; padding: 4px 0; font: inherit; font-size: 12px; cursor: pointer; }
+.ctx .item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 4px; font: inherit; cursor: pointer; }
+.ctx button:hover { background: #f2f3f7; }
+.ctx .note { font-size: 10.5px; color: var(--tm-home-text-muted); padding: 4px 6px 0; border-top: 1px solid #eef0f4; margin-top: 4px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2329; color: #fff; padding: 7px 14px; border-radius: 8px; font-size: 12.5px; z-index: 120; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+
+/* ---------- 设置 ---------- */
+.settings { position: sticky; top: 16px; }
+.settings .card { padding: 14px; }
+.crumb { font-size: 11.5px; color: var(--tm-home-text-muted); margin-bottom: 10px; }
+.field { margin-bottom: 13px; }
+.field .fl { font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+.field .desc { font-size: 11.5px; color: var(--tm-home-text-muted); margin-top: 4px; }
+.field select { width: 100%; font: inherit; font-size: 12.5px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--tm-home-border); background: var(--tm-home-surface); }
+.info { font-size: 11.5px; color: var(--tm-home-text-muted); padding: 7px 9px; border-radius: 7px; background: var(--tm-home-surface-alt); margin-bottom: 6px; }
+.info a { color: var(--tm-home-accent); text-decoration: none; }
+.formula { font-size: 11.5px; color: var(--tm-home-text-muted); background: var(--tm-home-surface-alt); border-radius: 8px; padding: 10px; line-height: 1.7; margin-top: 10px; }
+.formula b { color: var(--tm-home-text); font-weight: 600; }
+.formula .old { text-decoration: line-through; opacity: .7; }
+
+/* ============================================================
+   窄屏：原型用容器查询模拟；接入时挂到首页现有的
+   tm-homepage--dock / tm-homepage--mobile（resolveProfile：<760 为 mobile）
+   ============================================================ */
+@container home (max-width: 900px) {
+    .row2 { grid-template-columns: minmax(0, 1fr); }
+}
+@container home (max-width: 759px) {
+    .page { padding: 10px; gap: 10px; }
+    .card { padding: 12px; }
+    .card-head { flex-wrap: wrap; margin-bottom: 10px; }
+    .card-head > .range-switch { width: 100%; }
+    .card-head > .range-switch .range-btn { flex: 1; }
+    .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 8px 10px; }
+    .proj-grid { grid-template-columns: minmax(0, 1fr); }
+    /* 沿用现有 mobile 摘要：今日完成占满一行，其余两列 */
+    .sum-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+    .sum-main { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "lab val" "note val"; align-items: center; }
+    .sum-main .lab { grid-area: lab; } .sum-main .val { grid-area: val; font-size: 32px; } .sum-main .note { grid-area: note; }
+}
+@container home (max-width: 360px) {
+    .sum-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (pointer: coarse) {
+    .range-btn, .ctx .item, .ctx .dates button { min-height: 44px; }
+}
+</style>
+</head>
+<body class="show-changes">
+<div class="wrap">
+
+<div class="proto-note">
+    <b>精简版原型</b>：只升级现有<b>拖延分</b>（越高越差），接进 文档页签 / 项目进度 / 完成摘要 / 完成趋势 / 风险提醒。拖延程度只用红色深浅表示。<br>
+    试试：悬停页签和项目卡片里的「拖延」；风险提醒切到「拖延」，<b>右键或长按</b>任务用现有任务菜单处理；调右侧设置。模拟数据，今天为 2026-11-22。<br>
+    <span class="ctl">预览宽度
+        <span class="range-switch" id="widthSeg"><button class="range-btn is-active" data-px="">自适应</button><button class="range-btn" data-px="768">平板</button><button class="range-btn" data-px="390">手机</button><button class="range-btn" data-px="330">窄 Dock</button></span></span>
+    <label class="ctl"><input type="checkbox" id="showChanges" checked> 标出改动（<span class="new-tag" style="display:inline-block">新</span> 新增或改动，<span class="same-tag" style="display:inline-block">现有</span> 原样保留）</label>
+</div>
+
+<div class="layout">
+<main class="shell" id="shell">
+    <div class="toolbar"><span class="title">任务管理器</span><span class="chip">分组：全部项目</span><span class="grow"></span><span class="chip">主页</span></div>
+    <nav class="tabs is-new" id="tabs" aria-label="文档页签"></nav>
+    <div class="page">
+        <section class="card">
+            <div class="card-head"><div><div class="card-title">项目进度<span class="new-tag">统计行加拖延分</span></div><div class="card-desc">按分组 / 文档 / 二级标题的进度卡片</div></div></div>
+            <div class="proj-grid" id="projGrid"></div>
+        </section>
+        <div class="row2">
+            <section class="card" id="gauge"></section>
+            <section class="card" id="summary"></section>
+        </div>
+        <section class="card" id="trend"></section>
+        <section class="card" id="risk"></section>
+    </div>
+</main>
+
+<aside class="settings">
+    <div class="card">
+        <div class="crumb">设置 › 规则 › 拖延分<span class="new-tag">新子页</span></div>
+        <div class="field">
+            <div class="fl">统计窗口</div>
+            <span class="range-switch" id="winSeg"><button class="range-btn" data-w="7">7 天</button><button class="range-btn is-active" data-w="14">14 天</button><button class="range-btn" data-w="30">30 天</button></span>
+            <div class="desc">用于改期次数、新增与完成的统计。</div>
+        </div>
+        <div class="field">
+            <div class="fl">没有截止日期的任务</div>
+            <select id="protect">
+                <option value="3">创建 3 天后开始算拖延</option>
+                <option value="7" selected>创建 1 周后开始算拖延</option>
+                <option value="14">创建 2 周后开始算拖延</option>
+                <option value="30">创建 1 个月后开始算拖延</option>
+                <option value="0">不计入</option>
+            </select>
+        </div>
+        <div class="info">积分扣分：跟随「日历 › 专注与联动」设置（当前未开启）<a href="#" onclick="return false"> 前往 ›</a></div>
+        <div class="info">页签拖延底色开关位于「视图 › 启动与入口」<a href="#" onclick="return false"> 前往 ›</a></div>
+        <div class="formula" id="formula"></div>
+    </div>
+</aside>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+
+// ---------------- 模拟数据（日期 = 距今天数）----------------
+let seed = 20261122;
+const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+const ri = (a, b) => Math.floor(a + rnd() * (b - a + 1));
+const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+
+const PROJECTS = [
+    { id: 'p1', name: '产品发布 v3.6', color: '#5b6cff', n: 46, spread: 40, recentBias: 0.55, doneP: 0.75, dueP: 0.8, slip: 0.15, resched: 0.1, dueIn: 12,
+      words: ['设置页迁移', '移动端适配', '日历拖拽', '回归测试', '发布说明', '性能采样', '修复逾期排序', 'i18n 补全', '图标替换', '导出格式'] },
+    { id: 'p2', name: '论文写作', color: '#8b5cf6', n: 22, spread: 90, recentBias: 0, doneP: 0.3, dueP: 0.15, slip: 0.5, quietDays: 20, resched: 0.05, dueIn: -5,
+      words: ['文献综述', '实验设计', '第三章初稿', '数据清洗', '图表重绘', '致谢', '格式检查', '投稿信'] },
+    { id: 'p3', name: '家装', color: '#0ea5e9', n: 28, spread: 60, recentBias: 0.3, doneP: 0.45, dueP: 0.85, slip: 0.7, resched: 0.35, dueIn: 20,
+      words: ['水电验收', '定橱柜', '买灯具', '联系保洁', '窗帘测量', '吊顶', '地板选色', '物业报备'] },
+    { id: 'p4', name: '读书笔记', color: '#14b8a6', n: 14, spread: 30, recentBias: 0.5, doneP: 0.8, dueP: 0.3, slip: 0.1, resched: 0, dueIn: null,
+      words: ['整理摘录', '写书评', '复盘第 2 章', '卡片回顾', '下一本选书'] },
+    { id: 'p5', name: '收集箱', color: '#a0a6b1', n: 38, spread: 120, recentBias: 0.4, doneP: 0.25, dueP: 0.05, slip: 0.3, resched: 0.05, dueIn: null,
+      words: ['看看那个工具', '回复邮件', '整理下载文件夹', '研究一下', '买电池', '问问报价', '想法：周报模板'] },
+];
+
+const TASKS = [];
+PROJECTS.forEach((p) => {
+    for (let i = 0; i < p.n; i++) {
+        let created = rnd() < p.recentBias ? -ri(0, 13) : -ri(0, p.spread);
+        if (p.quietDays) created = Math.min(created, -p.quietDays - ri(0, 10));
+        const t = { id: p.id + '-' + i, proj: p.id, title: pick(p.words) + (rnd() < .5 ? '' : ' #' + ri(2, 9)),
+            created, due: null, start: null, done: null, canceled: false, resched: [] };
+        if (rnd() < p.dueP) t.due = created + ri(2, rnd() < p.slip ? 18 : 35);
+        if (rnd() < 0.08) t.start = ri(1, 10);
+        if (rnd() < p.doneP && created < 0) {
+            const latest = p.quietDays ? -p.quietDays : 0;
+            const target = t.due !== null ? t.due + (rnd() < p.slip ? ri(1, 6) : -ri(0, 3)) : created + ri(0, -created);
+            if (target <= latest) t.done = Math.max(created, target);
+        }
+        if (t.done === null && rnd() < 0.05) t.canceled = true;
+        if (t.due !== null && rnd() < p.resched) { const k = ri(1, 3); for (let j = 0; j < k; j++) t.resched.push(-ri(0, 29)); }
+        TASKS.push(t);
+    }
+});
+
+// ---------------- 设置与常数 ----------------
+const S = { protect: 7, win: 14, riskTab: 'due', menu: null };
+// 所有常数集中在这里，接入时同样放在一个配置对象里
+const CONFIG = {
+    weights: { age: 40, over: 25, resched: 15, flow: 20 },   // 积分扣分开启时另加 20
+    ageHalfDays: 15,          // 平均拖延 15 天 ≈ 该项 63%
+    reschedCap: 5,            // 改期次数归一：÷ max(5, 未完成数/4)
+    styleDragLine: 0.4,       // 四象限上下分界
+};
+
+// ---------------- 计算（接入时位于 kernel，页签与首页共用）----------------
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const isOpen = (t) => t.done === null && !t.canceled;
+const LEVELS = [[75, '严重'], [50, '高风险'], [25, '关注'], [0, '健康']];
+const levelLabel = (s) => LEVELS.find(([min]) => s >= min)[1];
+
+// 单任务拖了几天（实际天数，不加倍）
+function taskDelay(t) {
+    if (t.start !== null && t.start > 0) return null;
+    if (t.due !== null) return t.due < 0 ? { days: -t.due, reason: '逾期 ' + (-t.due) + ' 天', overdue: true } : null;
+    if (!S.protect) return null;
+    const age = -t.created;
+    return age > S.protect ? { days: age - S.protect, age, reason: '放了 ' + age + ' 天' } : null;
+}
+
+function metrics(tasks) {
+    const open = tasks.filter(isOpen);
+    const dragging = open.map((t) => ({ t, ...taskDelay(t) })).filter((x) => x.days);
+    const dueOpen = open.filter((t) => t.due !== null).length;
+    const overdue = dragging.filter((x) => x.overdue).length;
+    const totalDelay = dragging.reduce((s, x) => s + x.days, 0);
+    const avgAll = open.length ? totalDelay / open.length : 0;
+    const from = -S.win + 1;
+    const created = tasks.filter((t) => t.created >= from).length;
+    const done = tasks.filter((t) => t.done !== null && t.done >= from).length;
+    const resched = open.reduce((s, t) => s + t.resched.filter((d) => d >= from).length, 0);
+    const stalled = open.length > 0 && created === 0 && done === 0;
+    const w = CONFIG.weights;
+    const parts = [
+        { label: '拖得多久', w: w.age, r: 1 - Math.exp(-avgAll / CONFIG.ageHalfDays) },
+        { label: '逾期占比', w: w.over, r: dueOpen ? overdue / dueOpen : 0 },
+        { label: '反复改期', w: w.resched, r: clamp(resched / Math.max(CONFIG.reschedCap, open.length / 4), 0, 1) },
+        { label: '完成跟不上', w: w.flow, r: stalled ? 1 : created ? clamp(1 - done / created, 0, 1) : 0 },
+    ];
+    const wSum = parts.reduce((s, p) => s + p.w, 0);
+    const score = open.length ? Math.round(100 * parts.reduce((s, p) => s + p.w * p.r, 0) / wSum) : 0;
+    return {
+        // kernel 返回的 4 个新字段
+        draggingCount: dragging.length,
+        avgDelayDays: dragging.length ? Math.round(totalDelay / dragging.length) : 0,
+        createdInWindow: created,
+        doneInWindow: done,
+        // 现有字段
+        score, levelLabel: levelLabel(score), overdueCount: overdue, dueTaskCount: dueOpen, rescheduleCount: resched,
+        // 以下仅首页按需计算
+        open: open.length, total: tasks.length, finished: tasks.length - open.length, stalled, parts,
+        dragging: dragging.sort((a, b) => b.days - a.days),
+    };
+}
+
+function styleOf(m) {
+    if (!m.open) return { label: '清空了', desc: '没有未完成的任务' };
+    if (m.stalled) return { label: '停滞', desc: `近 ${S.win} 天没有新增也没有完成` };
+    const keepUp = m.doneInWindow >= m.createdInWindow;
+    const lowDrag = m.parts[0].r < CONFIG.styleDragLine;
+    if (keepUp && lowDrag) return { label: '稳步推进', desc: '完成跟得上新增，拖着的任务不多' };
+    if (keepUp) return { label: '在清旧账', desc: '完成跟得上新增，但还有拖了很久的任务' };
+    if (lowDrag) return { label: '新任务涌入', desc: '新增比完成多，好在还没拖太久' };
+    return { label: '积压中', desc: '新增比完成多，而且有任务拖了很久' };
+}
+function stylePos(m) {
+    const ratio = m.createdInWindow ? m.doneInWindow / m.createdInWindow : 2;
+    const r = m.parts[0].r, line = CONFIG.styleDragLine;
+    const y = r < line ? r / line * 0.5 : 0.5 + (r - line) / (1 - line) * 0.5;
+    return { x: clamp(ratio / 2, 0.06, 0.94), y: clamp(y, 0.24, 0.76) };
+}
+
+// 与现有 buildProcrastinationRowStyle 相同的红色深浅
+function tintVars(score) {
+    const v = clamp(Math.round(score), 0, 100);
+    const bg = v < 50 ? Math.round(v * 0.06) : Math.round(8 + (v - 50) * 0.32);
+    const border = v < 50 ? Math.round(v * 0.16) : Math.round(18 + (v - 50) * 0.72);
+    const text = v < 50 ? Math.round(v * 0.32) : Math.round(34 + (v - 50) * 1.16);
+    return { bg, border, text };
+}
+const breakdownTip = (m) => [`拖延分 ${m.score} · ${m.levelLabel}`,
+    ...m.parts.map((p) => `${p.label} ${Math.round(p.r * p.w)} / ${p.w}`),
+    `逾期 ${m.overdueCount} 项 · 近 ${S.win} 天改期 ${m.rescheduleCount} 次`].join('\n');
+
+// ---------------- 渲染 ----------------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const dateText = (d) => { const dt = new Date(2026, 10, 22 + d); return (dt.getMonth() + 1) + '/' + dt.getDate(); };
+const projName = (id) => PROJECTS.find((p) => p.id === id).name;
+let PM = [], GM = null;
+
+function renderTabs() {
+    $('tabs').innerHTML = PM.map(({ p, m }) => {
+        const mix = m.score <= 0 ? 0 : m.score < 50 ? Math.round(m.score * 0.06) : Math.round(8 + (m.score - 50) * 0.76);
+        const top = m.dragging[0];
+        // 现有 tooltip 组件，多行纯文本；原型用 title 模拟
+        const tip = m.open ? [`拖延分 ${m.score} · ${m.levelLabel}`, `${m.draggingCount} 项拖着，逾期 ${m.overdueCount} 项`,
+            `近 ${S.win} 天新增 ${m.createdInWindow}、完成 ${m.doneInWindow}`, top ? `拖得最久：${top.t.title}（${top.reason}）` : ''].filter(Boolean).join('\n') : '没有未完成的任务';
+        return `<span class="tab" style="--mix:${mix}%" title="${esc(tip)}">${esc(p.name)}</span>`;
+    }).join('');
+}
+
+function renderProjects() {
+    $('projGrid').innerHTML = PM.map(({ p, m }) => {
+        const pct = m.total ? Math.round(m.finished / m.total * 100) : 0;
+        const timing = p.dueIn === null ? '' : p.dueIn < 0 ? `<span class="timing risk">已超期 ${-p.dueIn} 天</span>` : `<span class="timing">剩 ${p.dueIn} 天</span>`;
+        const tv = tintVars(m.score);
+        const drag = m.open ? `<span class="drag is-new" title="${esc(breakdownTip(m))}"><span class="n" style="color:color-mix(in srgb, var(--tm-home-danger) ${tv.text}%, var(--tm-home-text))">${m.score}</span>拖延</span>` : '';
+        return `<div class="pcard" style="--c:${p.color}">
+            <div class="top"><span class="dot"></span><span class="name">${esc(p.name)}</span>${timing}</div>
+            <div class="stats"><span><span class="n">${m.total}</span>任务</span><span><span class="n">${m.finished}</span>完成</span>${m.overdueCount ? `<span><span class="n over">${m.overdueCount}</span>逾期</span>` : ''}${drag}</div>
+            <div class="bar"><i style="width:${pct}%"></i></div>
+            <div class="meta">${pct}%</div>
+        </div>`;
+    }).join('');
+}
+
+function renderGauge() {
+    const all = TASKS.length;
+    const done = TASKS.filter((t) => !isOpen(t)).length;
+    const over = TASKS.filter((t) => isOpen(t) && t.due !== null && t.due < 0).length;
+    const seg = [['已完成', done, 'var(--tm-home-accent)'], ['逾期', over, 'var(--tm-home-danger)'], ['未完成', all - done - over, '#c9cdd6']];
+    $('gauge').innerHTML = `
+        <div class="card-head"><div><div class="card-title">任务状态<span class="same-tag">现有</span></div><div class="card-desc">已完成、逾期与未完成占比</div></div></div>
+        <div class="card-desc">任务总数</div><div class="gauge-total">${all}</div>
+        <div class="gbar">${seg.map(([, v, c]) => `<i style="width:${v / all * 100}%;background:${c}"></i>`).join('')}</div>
+        <div class="gstats">${seg.map(([l, v, c]) => `<div><span><i class="d" style="background:${c}"></i>${l}</span><span>${v} · ${Math.round(v / all * 100)}%</span></div>`).join('')}</div>`;
+}
+
+function styleBoxHtml() {
+    const st = styleOf(GM), me = stylePos(GM);
+    const names = [['新任务涌入', '新增多 · 拖得少'], ['稳步推进', '跟得上 · 拖得少'], ['积压中', '新增多 · 拖得久'], ['在清旧账', '跟得上 · 拖得久']];
+    const dots = PM.filter(({ m }) => m.open && !m.stalled).map(({ p, m }) => {
+        const pos = stylePos(m);
+        return `<span class="qdot proj" style="--c:${p.color};left:${pos.x * 100}%;top:${pos.y * 100}%" title="${esc(p.name)}：${styleOf(m).label}"></span>`;
+    }).join('');
+    const stalled = PM.filter(({ m }) => m.stalled).map(({ p }) => esc(p.name)).join('、');
+    return `<div class="tile style-box is-new">
+        <div class="head"><span class="lab">做事风格<span class="new-tag">新</span></span><span class="state-pill">${st.label}</span></div>
+        <div class="quad">${names.map(([n, h]) => `<div class="${n === st.label ? 'hit' : ''}" title="${h}">${n}</div>`).join('')}${dots}
+            <span class="qdot me" style="left:${me.x * 100}%;top:${me.y * 100}%" title="当前范围：${st.label}"></span></div>
+        <div class="desc">${st.desc}${stalled ? `<br>停滞：${stalled}` : ''}</div>
+    </div>`;
+}
+
+function renderSummary() {
+    const todayDone = TASKS.filter((t) => t.done === 0).length;
+    const todayPlan = TASKS.filter((t) => !t.canceled && (t.due === 0 || t.done === 0)).length;
+    const weekDone = TASKS.filter((t) => t.done !== null && t.done > -7).length;
+    let streak = 0;   // 现有逻辑：从昨天往前算
+    for (let d = -1; TASKS.some((t) => t.done === d); d--) streak++;
+    const tv = tintVars(GM.score);
+    $('summary').innerHTML = `
+        <div class="card-head"><div><div class="card-title">完成摘要</div><div class="card-desc">先看今天，再看连续性和拖延 · 按近 ${S.win} 天统计</div></div></div>
+        <div class="sum-layout">
+            <div class="tile sum-main">
+                <div class="lab">今日完成</div>
+                <div class="val">${todayDone}</div>
+                <div class="note"><span class="is-new">今天计划 ${todayPlan} 项<span class="new-tag">新</span></span> · 近 7 天 ${weekDone} 项</div>
+            </div>
+            ${styleBoxHtml()}
+            <div class="rows">
+                <div class="tile row"><span class="lab">连续完成<span class="same-tag">现有</span></span><span class="val">${streak}<small>天</small></span><span class="note">${streak ? '当前连续' : '暂无连续'}</span></div>
+                <div class="tile row is-procrastination is-new" style="--bg-mix:${tv.bg}%;--border-mix:${tv.border}%;--text-mix:${tv.text}%" title="${esc(breakdownTip(GM))}">
+                    <span class="lab">拖延分<span class="new-tag">新算法</span></span><span class="val">${GM.score}<small>${GM.levelLabel}</small></span>
+                    <span class="note">${GM.draggingCount} 项拖着 · 平均 ${GM.avgDelayDays} 天</span></div>
+            </div>
+        </div>`;
+}
+
+function renderTrend() {
+    const N = 30, pts = [];
+    for (let d = -N + 1; d <= 0; d++) pts.push({ d, done: TASKS.filter((t) => t.done === d).length, created: TASKS.filter((t) => t.created === d).length });
+    const box = $('trend');
+    const W = Math.max(260, Math.round((box.clientWidth || 792) - 32));
+    const H = W < 500 ? 130 : 150, pl = 24, pb = 18, pt = 8;
+    const every = W < 420 ? 10 : 5;
+    trendWidth = box.clientWidth || 0;
+    const max = Math.max(3, ...pts.map((x) => Math.max(x.done, x.created)));
+    const X = (i) => pl + i * (W - pl - 6) / (N - 1);
+    const Y = (v) => pt + (H - pb - pt) * (1 - v / max);
+    const line = (k) => pts.map((x, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(x[k]).toFixed(1)).join(' ');
+    const sumDone = pts.reduce((s, x) => s + x.done, 0), sumNew = pts.reduce((s, x) => s + x.created, 0);
+    $('trend').innerHTML = `
+        <div class="card-head">
+            <div><div class="card-title">完成趋势<span class="new-tag">叠加新增</span></div><div class="card-desc">最近 30 天完成曲线（现有 7 / 30 / 90 天切换略）</div></div>
+            <div class="legend"><span><i style="border-color:var(--tm-home-accent)"></i>完成</span><span class="is-new"><i style="border-color:var(--tm-home-new);border-top-style:dashed"></i>新增</span></div>
+        </div>
+        <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="近 30 天完成与新增">
+            ${[0, Math.round(max / 2), max].map((v) => `<line x1="${pl}" x2="${W}" y1="${Y(v)}" y2="${Y(v)}" stroke="#eef0f4"/><text x="0" y="${Y(v) + 3}" font-size="10" fill="#8a8f99">${v}</text>`).join('')}
+            <path d="${line('done')} L${X(N - 1)} ${H - pb} L${X(0)} ${H - pb} Z" fill="var(--tm-home-accent)" opacity=".08"/>
+            <path d="${line('done')}" fill="none" stroke="var(--tm-home-accent)" stroke-width="2"/>
+            <path d="${line('created')}" fill="none" stroke="var(--tm-home-new)" stroke-width="1.6" stroke-dasharray="4 3"/>
+            ${pts.map((x, i) => (N - 1 - i) % every === 0 ? `<text x="${X(i)}" y="${H - 4}" font-size="10" text-anchor="middle" fill="#8a8f99">${x.d === 0 ? '今天' : dateText(x.d)}</text>` : '').join('')}
+            ${pts.map((x, i) => `<rect x="${X(i) - 8}" y="${pt}" width="16" height="${H - pb - pt}" fill="transparent"><title>${dateText(x.d)} 完成 ${x.done} · 新增 ${x.created}</title></rect>`).join('')}
+        </svg>
+        <div class="trend-sum">30 天完成 <b>${sumDone}</b> · 新增 <b>${sumNew}</b> · <span class="${sumNew > sumDone ? 'up' : 'down'}">${sumNew > sumDone ? '新增多于完成，积压在涨' : '完成跟得上新增'}</span></div>`;
+}
+let trendWidth = 0;
+
+function renderRisk() {
+    const dueList = TASKS.filter((t) => isOpen(t) && t.due !== null && t.due <= 7).sort((a, b) => a.due - b.due);
+    const dragAll = PM.flatMap(({ m }) => m.dragging).sort((a, b) => b.days - a.days);
+    const item = (t, badge) => `<button type="button" class="list-item" data-tid="${t.id}">
+        <span style="min-width:0"><span class="t">${esc(t.title)}</span><span class="w">${esc(projName(t.proj))}</span></span>${badge}</button>`;
+    const body = S.riskTab === 'due'
+        ? dueList.slice(0, 6).map((t) => item(t, `<span class="badge ${t.due < 0 ? 'danger' : 'warning'}">${t.due < 0 ? '逾期 ' + (-t.due) + ' 天' : t.due === 0 ? '今天到期' : t.due + ' 天后到期'}</span>`)).join('') || '<div class="empty">没有逾期或临期任务</div>'
+        : (dragAll.slice(0, 6).map((x) => item(x.t, `<span class="badge ${x.overdue ? 'danger' : 'idle'}">${x.reason}</span>`)).join('') || '<div class="empty">没有拖着的任务</div>')
+          + (dragAll.length ? '<div class="list-hint">点击打开任务；右键或长按可改日期、标记完成或放弃</div>' : '');
+    $('risk').innerHTML = `
+        <div class="card-head">
+            <div><div class="card-title">风险提醒<span class="new-tag">拖延页</span></div><div class="card-desc">${S.riskTab === 'due' ? '先看逾期，再看 7 天内到期' : '拖得最久的任务'}</div></div>
+            <div class="range-switch is-new" id="riskSeg"><button class="range-btn ${S.riskTab === 'due' ? 'is-active' : ''}" data-v="due">逾期 / 临期 ${dueList.length}</button><button class="range-btn ${S.riskTab === 'drag' ? 'is-active' : ''}" data-v="drag">拖延 ${dragAll.length}</button></div>
+        </div>
+        <div class="list">${body}</div>`;
+}
+
+function renderFormula() {
+    const w = CONFIG.weights;
+    $('formula').innerHTML = `
+        <div><b>单个任务拖了几天</b>（实际天数）</div>
+        <div>· 已逾期：逾期天数</div>
+        <div>· 没设截止日期：${S.protect ? `放置天数 − ${S.protect}` : '不计'}</div>
+        <div>· 未到开始日期、循环、已取消：不计</div>
+        <div style="margin-top:6px"><b>拖延分（0–100，越高越差）</b></div>
+        <div>拖得多久 ${w.age} · 逾期占比 ${w.over} · 反复改期 ${w.resched} · 完成跟不上 ${w.flow}；积分扣分开启时另加 20</div>
+        <div><span class="old">现有：逾期占比 35 · 改期 20 · 扣分 20</span></div>
+        <div style="margin-top:6px">≥75 严重 · ≥50 高风险 · ≥25 关注 · 其余健康（不变）</div>`;
+}
+
+function renderAll() {
+    PM = PROJECTS.map((p) => ({ p, m: metrics(TASKS.filter((t) => t.proj === p.id)) }));
+    GM = metrics(TASKS);
+    renderTabs(); renderProjects(); renderGauge(); renderSummary(); renderTrend(); renderRisk(); renderFormula();
+}
+
+// ---------------- 任务菜单（模拟现有 tmShowTaskContextMenu）----------------
+let toastTimer = 0;
+function toast(msg) {
+    const el = $('toast'); el.textContent = msg; el.classList.add('on');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 1600);
+}
+function closeMenu() { document.querySelector('.ctx')?.remove(); S.menu = null; }
+function openMenu(tid, x, y) {
+    closeMenu();
+    const t = TASKS.find((k) => k.id === tid); if (!t) return;
+    S.menu = tid;
+    const el = document.createElement('div');
+    el.className = 'ctx'; el.setAttribute('role', 'menu');
+    el.innerHTML = `<div class="sec">日期</div>
+        <div class="dates"><button data-m="d0">今天</button><button data-m="d1">明天</button><button data-m="d7">下周</button><button data-m="pick">选择</button></div>
+        <button class="item" data-m="done">标记完成</button>
+        <button class="item" data-m="cancel">放弃（取消任务）</button>
+        <div class="note">插件现有任务菜单，此处只模拟相关几项</div>`;
+    document.body.appendChild(el);
+    const r = el.getBoundingClientRect();
+    el.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+    el.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+    el.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-m]'); if (!b) return;
+        const m = b.dataset.m;
+        if (m === 'pick') { toast('打开现有日期面板（模拟）'); closeMenu(); return; }
+        if (m === 'done') { t.done = 0; toast('已完成'); }
+        else if (m === 'cancel') { t.canceled = true; toast('已取消'); }
+        else {
+            const nd = +m.slice(1);
+            if (t.due !== null && t.due < 0) t.resched.push(0);   // 已逾期改到未来：按现有规则记一次改期
+            t.due = nd; t.start = null; toast('截止日期已改到' + b.textContent);
+        }
+        closeMenu(); renderAll();
+    });
+}
+
+// ---------------- 交互 ----------------
+document.addEventListener('click', (e) => {
+    if (S.menu && !e.target.closest('.ctx')) closeMenu();
+    const wb = e.target.closest('#widthSeg .range-btn');
+    if (wb) { setWidth(wb.dataset.px); return; }
+    const sb = e.target.closest('#riskSeg .range-btn, #winSeg .range-btn');
+    if (sb) {
+        if (sb.parentElement.id === 'riskSeg') S.riskTab = sb.dataset.v;
+        else { S.win = +sb.dataset.w; [...sb.parentElement.children].forEach((b) => b.classList.toggle('is-active', b === sb)); }
+        renderAll(); return;
+    }
+    const li = e.target.closest('.list-item');
+    if (li && !longPressed) toast('打开任务详情（现有 onOpenTask）');
+    longPressed = false;
+});
+document.addEventListener('contextmenu', (e) => {
+    const li = e.target.closest('.list-item'); if (!li) return;
+    e.preventDefault(); openMenu(li.dataset.tid, e.clientX, e.clientY);
+});
+// 触屏长按（接入时复用项目卡片现有的长按处理）
+let pressTimer = 0, longPressed = false;
+document.addEventListener('pointerdown', (e) => {
+    const li = e.target.closest('.list-item');
+    if (!li || e.pointerType === 'mouse') return;
+    longPressed = false;
+    pressTimer = setTimeout(() => { longPressed = true; openMenu(li.dataset.tid, e.clientX, e.clientY); }, 500);
+});
+['pointerup', 'pointercancel', 'pointermove'].forEach((n) => document.addEventListener(n, (e) => {
+    if (n === 'pointermove' && Math.abs(e.movementX) + Math.abs(e.movementY) < 4) return;
+    clearTimeout(pressTimer);
+}));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+document.addEventListener('change', (e) => {
+    if (e.target.id === 'showChanges') document.body.classList.toggle('show-changes', e.target.checked);
+    if (e.target.id === 'protect') { S.protect = +e.target.value; renderAll(); }
+});
+function setWidth(px) {
+    $('shell').style.width = px ? px + 'px' : '';
+    [...$('widthSeg').children].forEach((b) => b.classList.toggle('is-active', b.dataset.px === (px || '')));
+}
+
+const hashW = /(?:^|[#&])w=(\d+)/.exec(location.hash || '');
+if (hashW) setWidth(hashW[1]);
+renderAll();
+if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => { if (Math.abs(($('trend').clientWidth || 0) - trendWidth) > 8) renderTrend(); }).observe($('trend'));
+}
+})();
+</script>
+</body>
+</html>

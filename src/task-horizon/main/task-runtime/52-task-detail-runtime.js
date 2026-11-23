@@ -2919,6 +2919,7 @@
         };
         // Opening can happen between pointerdown and click. Keep that gesture inside
         // even when the editor redraws its trigger or the pointer moves on release.
+        const ignoreSyntheticOutsideClickUntil = mobileQuickAdd ? Date.now() + 400 : 0;
         let pointerStartedInside = true;
         on(window, 'pointerdown', (ev) => {
             pointerStartedInside = isTimeHubInside(ev);
@@ -2927,7 +2928,11 @@
         on(window, 'click', (ev) => {
             const isInsideGesture = pointerStartedInside && ev.detail > 0;
             pointerStartedInside = false;
-            if (!isInsideGesture) closeTimeHubFromOutside(ev, 'outside-click');
+            const isOpeningSyntheticClick = mobileQuickAdd
+                && ev.isTrusted === false
+                && ev.detail === 0
+                && Date.now() < ignoreSyntheticOutsideClickUntil;
+            if (!isInsideGesture && !isOpeningSyntheticClick) closeTimeHubFromOutside(ev, 'outside-click');
         }, { capture: true });
         on(document, 'keydown', (ev) => {
             if (ev.key === 'Escape' && !ev.defaultPrevented && !document.querySelector('.tm-repeat-modal')) __tmCloseStandaloneTaskTimeHub('escape');

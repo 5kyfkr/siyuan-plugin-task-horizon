@@ -6,9 +6,11 @@
     const runtime = {
         root: null,
         ctx: null,
-        rangeDays: 30,
+        // Risk alerts tab: "due" (overdue / due soon) or "drag". Runtime only, not persisted.
+        riskTab: "due",
         profile: "desktop",
         clickHandler: null,
+        chartRangeChangeHandler: null,
         documentClickHandler: null,
         resizeObserver: null,
         trendResizeObserver: null,
@@ -46,6 +48,10 @@
         homepageSettingsOpen: false,
         homepageSettings: { status: "idle", loadSeq: 0, saveSeq: 0, data: null },
     };
+    const HOMEPAGE_RECENT_DAYS = 30;
+    const CHART_DAY_RANGES = Object.freeze({ "7d": 7, "30d": HOMEPAGE_RECENT_DAYS, "90d": 90 });
+    const CHART_MONTH_RANGES = Object.freeze({ "6m": 6, "12m": 12 });
+    const CHART_DEFAULT_RANGES = Object.freeze({ trend: "30d", heatmap: "6m" });
     const FOCUS_HISTORY_LOAD_DAYS = 90;
     const FOCUS_STATS_CONTRACT_VERSION = 2;
     const FOCUS_CALENDAR_CACHE_LIMIT = 12;
@@ -56,7 +62,7 @@
         { id: "overview", label: __tmT("homepage.taskOverview"), desc: __tmT("homepage.taskStatusCompletionSummary"), wide: true },
         { id: "focus", label: __tmT("kernel.focusStatistics"), desc: __tmT("homepage.shownWhenPomodoroIntegrationIsOn"), wide: true },
         { id: "trend", label: __tmT("homepage.completionTrend"), desc: __tmT("homepage.recentCompletionCurve"), wide: true },
-        { id: "heatmap", label: __tmT("homepage.completionHeatmap"), desc: __tmT("homepage.monthlyCompletionOverThePastYear"), wide: false },
+        { id: "heatmap", label: __tmT("homepage.completionHeatmap"), desc: __tmT("homepage.heatmapDailyCompletions"), wide: false },
         { id: "distribution", label: __tmT("homepage.taskDistribution"), desc: __tmT("homepage.unfinishedTaskDistribution"), wide: false },
         { id: "recent", label: __tmT("homepage.recentCompletions"), desc: __tmT("homepage.lastCompletionRecords"), wide: false },
         { id: "risk", label: __tmT("homepage.riskAlerts"), desc: __tmT("homepage.overdueAndDueSoonTasks"), wide: false },
@@ -87,6 +93,17 @@
         return out;
     }
 
+    function normalizeHomepageChartRange(chart, value) {
+        if (typeof value === "string") {
+            if (Object.hasOwn(CHART_MONTH_RANGES, value)
+                || (Object.hasOwn(CHART_DAY_RANGES, value) && (value !== "7d" || chart === "trend"))) return value;
+            const year = /^year-([1-9]\d{3})$/.exec(value)?.[1];
+            const currentYear = Number(normalizeDateKey(runtime.ctx?.todayKey).slice(0, 4)) || new Date().getFullYear();
+            if (year && Number(year) <= currentYear) return value;
+        }
+        return CHART_DEFAULT_RANGES[chart];
+    }
+
     function normalizeHomepageSettings(value) {
         let source = value;
         if (typeof source === "string" && source.trim()) {
@@ -97,6 +114,8 @@
             moduleOrder: normalizeHomepageModuleOrder(source.moduleOrder),
             moduleLayout: normalizeHomepageModuleLayout(source.moduleLayout),
             moduleCollapsed: normalizeHomepageModuleCollapsed(source.moduleCollapsed),
+            trendRange: normalizeHomepageChartRange("trend", source.trendRange),
+            heatmapRange: normalizeHomepageChartRange("heatmap", source.heatmapRange),
         };
     }
 
@@ -120,7 +139,7 @@
     function getHomepageSettingsData() {
         const current = runtime.homepageSettings?.data;
         if (current && typeof current === "object") return normalizeHomepageSettings(current);
-        const normalized = normalizeHomepageSettings(null);
+        const normalized = normalizeHomepageSettings(globalThis.__tmProjectVisibility?.getSettings?.());
         runtime.homepageSettings = {
             ...(runtime.homepageSettings || {}),
             data: normalized,
@@ -142,7 +161,7 @@
             savingSeq: saveSeq,
         };
         try {
-            Promise.resolve(service.saveSettings(normalizeHomepageSettings(data))).then(() => {
+            Promise.resolve(service.saveSettings(data)).then(() => {
                 const current = runtime.homepageSettings || {};
                 if (Number(current.savingSeq) === saveSeq) {
                     runtime.homepageSettings = { ...current, savingSeq: 0 };
@@ -154,27 +173,25 @@
         }
     }
 
-    function saveHomepageSettings(nextSettings) {
-        const normalized = normalizeHomepageSettings(nextSettings);
+    function saveHomepageSettings(patch) {
+        const normalized = normalizeHomepageSettings({ ...getHomepageSettingsData(), ...patch });
         runtime.homepageSettings = {
             ...(runtime.homepageSettings || {}),
             status: "loaded",
             data: normalized,
         };
-        persistHomepageSettings(normalized);
+        persistHomepageSettings(Object.fromEntries(Object.keys(patch).map((key) => [key, normalized[key]])));
         return normalized;
     }
 
     function saveHomepageModuleOrder(order) {
         return saveHomepageSettings({
-            ...getHomepageSettingsData(),
             moduleOrder: normalizeHomepageModuleOrder(order),
         }).moduleOrder;
     }
 
     function resetHomepageModuleOrder() {
         return saveHomepageSettings({
-            ...getHomepageSettingsData(),
             moduleOrder: HOMEPAGE_DEFAULT_MODULE_ORDER,
             moduleLayout: normalizeHomepageModuleLayout(null),
             moduleCollapsed: {},
@@ -228,7 +245,6 @@
         if (collapsed === true) next[key] = true;
         else delete next[key];
         return saveHomepageSettings({
-            ...getHomepageSettingsData(),
             moduleCollapsed: normalizeHomepageModuleCollapsed(next),
         }).moduleCollapsed;
     }
@@ -239,7 +255,6 @@
 
     function saveHomepageModuleLayout(layout) {
         return saveHomepageSettings({
-            ...getHomepageSettingsData(),
             moduleLayout: normalizeHomepageModuleLayout(layout),
         }).moduleLayout;
     }
@@ -465,7 +480,6 @@
     --tm-home-trend-height: 190px;
     --tm-home-heatmap-cell: 16px;
     --tm-home-heatmap-gap: 5px;
-    --tm-home-heatmap-edge-inset: 0px;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -1174,6 +1188,219 @@
     color: color-mix(in srgb, var(--tm-home-danger) var(--tm-home-procrastination-text-mix, 36%), var(--tm-home-text));
 }
 
+.tm-homepage-summary-row.is-procrastination[title] {
+    cursor: help;
+}
+
+/* Compact desktop summary: small KPI stack on the left, action status on the right. */
+.tm-homepage-summary-layout--style {
+    display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-columns: minmax(176px, .72fr) minmax(0, 1.28fr);
+    gap: 10px;
+}
+
+.tm-homepage-summary-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    min-width: 0;
+}
+
+.tm-homepage-summary-layout--style .tm-homepage-summary-list {
+    display: contents;
+}
+
+.tm-homepage-summary-stack > .tm-homepage-summary-main,
+.tm-homepage-summary-layout--style .tm-homepage-summary-row {
+    min-height: 0;
+    padding: 6px 8px;
+}
+
+.tm-homepage-summary-stack > .tm-homepage-summary-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "label value"
+        "note value";
+    align-items: center;
+    gap: 3px 8px;
+}
+
+.tm-homepage-summary-stack > .tm-homepage-summary-main .tm-homepage-summary-main-label,
+.tm-homepage-summary-layout--style .tm-homepage-summary-row-label {
+    grid-area: label;
+}
+
+.tm-homepage-summary-stack > .tm-homepage-summary-main .tm-homepage-summary-main-value {
+    grid-area: value;
+    font-size: 24px;
+}
+
+.tm-homepage-summary-stack > .tm-homepage-summary-main .tm-homepage-summary-main-note,
+.tm-homepage-summary-layout--style .tm-homepage-summary-row-note {
+    grid-area: note;
+    font-size: 10px;
+    line-height: 1.25;
+}
+
+.tm-homepage-summary-layout--style .tm-homepage-summary-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "label value"
+        "note value";
+    align-items: center;
+    gap: 3px 8px;
+}
+
+.tm-homepage-summary-layout--style .tm-homepage-summary-row-value {
+    grid-area: value;
+}
+
+.tm-homepage-summary-layout--style .tm-homepage-summary-row-number {
+    font-size: 21px;
+}
+
+.tm-homepage-summary-layout--style .tm-homepage-summary-row-unit {
+    font-size: 12px;
+}
+
+.tm-homepage-summary-style {
+    display: flex;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: stretch;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.tm-homepage-summary-card-head {
+    align-items: flex-start;
+}
+
+.tm-homepage-summary-work-style-note {
+    flex: 0 1 52%;
+    max-width: 52%;
+    min-width: 0;
+    margin-left: auto;
+    color: var(--tm-home-text-muted);
+    font-size: 10.5px;
+    line-height: 1.3;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.tm-homepage-summary-style-quad {
+    position: relative;
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    min-height: 96px;
+    font-size: 10.5px;
+    overflow: hidden;
+    border: 1px solid var(--tm-home-border);
+    border-radius: 8px;
+    background: var(--tm-home-surface);
+}
+
+/* Quadrant dividers: the centre lines are the "keeping up" and "dragging" thresholds. */
+.tm-homepage-summary-style-quad::before,
+.tm-homepage-summary-style-quad::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    background: var(--tm-home-border);
+}
+
+.tm-homepage-summary-style-quad::before {
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+}
+
+.tm-homepage-summary-style-quad::after {
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+}
+
+.tm-homepage-summary-style-cell {
+    padding: 3px 5px;
+    color: var(--tm-home-text-muted);
+}
+
+.tm-homepage-summary-style-cell:nth-child(2),
+.tm-homepage-summary-style-cell:nth-child(4) {
+    text-align: right;
+}
+
+.tm-homepage-summary-style-cell:nth-child(3),
+.tm-homepage-summary-style-cell:nth-child(4) {
+    display: flex;
+    align-items: flex-end;
+}
+
+.tm-homepage-summary-style-cell:nth-child(4) {
+    justify-content: flex-end;
+}
+
+.tm-homepage-summary-style-cell.is-hit {
+    font-weight: 700;
+    color: var(--tm-home-accent);
+    background: var(--tm-home-accent-soft);
+}
+
+.tm-homepage-summary-style-dot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--tm-doc-color, var(--tm-home-text-muted));
+    opacity: 0.8;
+    cursor: help;
+}
+
+.tm-homepage-summary-style-dot.is-stalled:not(.is-me) {
+    width: 9px;
+    height: 9px;
+    opacity: 1;
+    background: var(--tm-home-surface);
+    border: 1px dashed var(--tm-doc-color, var(--tm-home-text-muted));
+}
+
+.tm-homepage-summary-style-dot.is-me {
+    width: 12px;
+    height: 12px;
+    z-index: 1;
+    opacity: 1;
+    cursor: help;
+    background: var(--tm-home-accent);
+    border: 2px solid var(--tm-home-surface);
+    box-shadow: 0 0 0 1px var(--tm-home-accent);
+    transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.tm-homepage-summary-style-dot.is-me:hover {
+    transform: translate(-50%, -50%) scale(1.18);
+    box-shadow: 0 0 0 2px var(--tm-home-accent), 0 0 0 5px color-mix(in srgb, var(--tm-home-accent) 18%, transparent);
+}
+
+.tm-homepage-summary-style-dot.is-me.is-stalled {
+    background: var(--tm-home-surface);
+    border-style: dashed;
+}
+
 .tm-homepage-card {
     border: 1px solid var(--tm-home-border);
     border-radius: var(--tm-home-card-radius);
@@ -1237,6 +1464,7 @@
 }
 
 .tm-homepage-card.tm-homepage-card--trend {
+    --tm-home-trend-created-color: color-mix(in srgb, var(--tm-home-text-muted) 58%, var(--tm-home-surface) 42%);
     gap: 10px;
     height: 100%;
     min-height: 0;
@@ -1301,21 +1529,30 @@
     color: var(--tm-home-text-muted);
 }
 
-.tm-homepage-trend-head .tm-homepage-range-switch {
+.tm-homepage-chart-range {
+    box-sizing: border-box;
+    max-width: 130px;
+    min-height: 28px;
+    padding: 2px 6px;
+    border: 1px solid var(--tm-home-border);
+    border-radius: 7px;
+    background: var(--tm-home-surface);
+    color: var(--tm-home-text);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.tm-homepage-chart-range:focus-visible,
+.tm-homepage-heatmap-shell:focus-visible {
+    outline: 2px solid var(--tm-home-accent);
+    outline-offset: 2px;
+}
+
+.tm-homepage-trend-head .tm-homepage-chart-range {
     position: absolute;
     top: 0;
     right: 0;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 9px;
-}
-
-.tm-homepage-trend-head .tm-homepage-range-btn {
-    min-width: 40px;
-    height: 26px;
-    padding: 0 7px;
-    border-radius: 7px;
-    font-size: 11px;
 }
 
 .tm-homepage-trend-wrap {
@@ -1389,6 +1626,46 @@
     filter: drop-shadow(0 1px 5px color-mix(in srgb, var(--tm-home-accent) 8%, transparent));
 }
 
+.tm-homepage-trend-created {
+    fill: none;
+    stroke: var(--tm-home-trend-created-color);
+    stroke-width: 1.6;
+    stroke-dasharray: 4 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.85;
+}
+
+.tm-homepage-trend-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: 6px;
+}
+
+.tm-homepage-trend-legend-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-left: 18px;
+}
+
+.tm-homepage-trend-legend-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 14px;
+    height: 2px;
+    background: var(--tm-home-accent);
+    transform: translateY(-50%);
+}
+
+.tm-homepage-trend-legend-item.is-created::before {
+    background: repeating-linear-gradient(90deg, var(--tm-home-trend-created-color) 0 3px, transparent 3px 6px);
+}
+
 .tm-homepage-trend-dot {
     fill: var(--tm-home-accent);
 }
@@ -1430,8 +1707,8 @@
 
 .tm-homepage-trend-axis {
     display: grid;
-    grid-template-columns: repeat(var(--tm-home-trend-days, 15), minmax(0, 1fr));
-    gap: 3px;
+    grid-template-columns: repeat(var(--tm-home-trend-points), minmax(0, 1fr));
+    padding-inline: 12px;
     flex: 0 0 auto;
 }
 
@@ -1462,6 +1739,12 @@
     line-height: 1.2;
     color: var(--tm-home-text-muted);
     white-space: nowrap;
+}
+
+.tm-homepage-trend-axis-year {
+    color: var(--tm-home-text-muted);
+    font-size: 9px;
+    line-height: 1;
 }
 
 .tm-homepage-trend-axis-date.is-empty {
@@ -1499,6 +1782,22 @@
     border-radius: calc(var(--tm-home-card-radius) - 2px);
     box-sizing: border-box;
     background: color-mix(in srgb, var(--tm-home-surface-alt) 82%, var(--tm-home-surface) 18%);
+}
+
+.tm-homepage-focus-panel.tm-homepage-focus-today {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.tm-homepage--desktop .tm-homepage-card--focus:not(.is-narrow) .tm-homepage-focus-panel {
+    min-height: 0;
+}
+
+.tm-homepage--desktop .tm-homepage-card--focus:not(.is-narrow) .tm-homepage-focus-recent .tm-homepage-focus-list {
+    min-height: 0;
+    overflow-y: auto;
 }
 
 [data-tm-home-focus-recent-slot] {
@@ -1668,7 +1967,7 @@
 
 .tm-homepage-focus-today-layout {
     display: grid;
-    grid-template-columns: minmax(176px, 1.22fr) minmax(118px, 0.78fr);
+    grid-template-columns: max-content minmax(0, 1fr);
     align-items: stretch;
     gap: 12px;
     min-width: 0;
@@ -1678,14 +1977,17 @@
 
 .tm-homepage-focus-day-metrics {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-self: start;
     gap: 10px;
-    min-height: 100%;
+    min-height: 0;
     min-width: 0;
 }
 
 .tm-homepage-focus-calendar-wrap {
     align-self: start;
+    width: max-content;
+    max-width: 100%;
     min-width: 0;
 }
 
@@ -1788,7 +2090,8 @@
 
 .tm-homepage-focus-calendar-popover {
     position: static;
-    width: 100%;
+    width: max-content;
+    max-width: 100%;
     padding: 7px;
     border: 1px solid color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-border));
     border-radius: 8px;
@@ -1823,7 +2126,7 @@
 .tm-homepage-focus-calendar-week,
 .tm-homepage-focus-calendar-grid {
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(7, 28px);
     gap: 3px;
 }
 
@@ -1846,9 +2149,10 @@
     align-items: center;
     justify-content: center;
     min-width: 0;
-    width: 100%;
+    width: 28px;
+    justify-self: center;
     aspect-ratio: 1;
-    min-height: 21px;
+    min-height: 0;
     border: 1px solid transparent;
     border-radius: 6px;
     background: color-mix(in srgb, var(--tm-home-surface-alt) 70%, transparent);
@@ -1934,8 +2238,8 @@
 }
 
 .tm-homepage-focus-day-metrics .tm-homepage-focus-stat-grid {
-    grid-template-columns: 1fr;
-    grid-auto-rows: minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: auto;
 }
 
 .tm-homepage-focus-day-metrics .tm-homepage-focus-empty {
@@ -2363,6 +2667,14 @@
     flex: 0 0 auto;
 }
 
+.tm-homepage-heatmap-controls {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
 .tm-homepage-card--heatmap .tm-homepage-heatmap-shell {
     flex: 1 1 auto;
     min-height: 0;
@@ -2371,7 +2683,6 @@
 .tm-homepage-card--heatmap .tm-homepage-heatmap-grid {
     flex: 1 1 auto;
     align-items: stretch;
-    justify-content: flex-end;
     gap: var(--tm-home-heatmap-gap);
     min-height: 0;
 }
@@ -2398,32 +2709,24 @@
 }
 
 .tm-homepage-heatmap-grid {
+    direction: ltr;
     display: flex;
     flex-wrap: nowrap;
     gap: var(--tm-home-heatmap-gap);
     align-items: start;
-    justify-content: flex-end;
-    min-width: 0;
+    width: max-content;
+    min-width: 100%;
 }
 
 .tm-homepage-heatmap-shell {
-    position: relative;
+    /* Start at the latest month without reversing the grid's chronological order. */
+    direction: rtl;
     display: flex;
     flex-direction: column;
-    gap: 14px;
     box-sizing: border-box;
-}
-
-.tm-homepage-card--heatmap .tm-homepage-heatmap-shell::before {
-    content: "";
-    position: absolute;
-    z-index: 3;
-    top: 0;
-    bottom: 0;
-    left: calc(-1 * var(--tm-home-card-padding-x));
-    width: calc(var(--tm-home-card-padding-x) + var(--tm-home-heatmap-edge-inset));
-    background: color-mix(in srgb, var(--tm-home-surface) 94%, var(--tm-home-bg) 6%);
-    pointer-events: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
 }
 
 .tm-homepage-heatmap-month {
@@ -2679,6 +2982,32 @@
     grid-template-columns: 1fr;
 }
 
+.tm-homepage--dock .tm-homepage-summary-layout--style {
+    flex: 0 1 auto;
+    grid-template-columns: 1fr;
+}
+
+.tm-homepage--dock .tm-homepage-summary-layout--style .tm-homepage-summary-list {
+    display: contents;
+}
+
+.tm-homepage--dock .tm-homepage-summary-style {
+    grid-column: 1;
+    grid-row: auto;
+}
+
+.tm-homepage--dock .tm-homepage-summary-card-head {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.tm-homepage--dock .tm-homepage-summary-work-style-note {
+    flex-basis: auto;
+    max-width: none;
+    margin-left: 0;
+    text-align: left;
+}
+
 .tm-homepage--dock .tm-homepage-module--wide {
     grid-column: auto;
 }
@@ -2688,10 +3017,88 @@
     grid-template-columns: 1fr;
 }
 
-.tm-homepage--dock .tm-homepage-focus-today-layout,
-.tm-homepage-card--focus.is-narrow .tm-homepage-focus-today-layout {
+.tm-homepage--dock .tm-homepage-focus-day-metrics,
+.tm-homepage--mobile .tm-homepage-focus-day-metrics {
+    grid-template-rows: auto auto minmax(0, 1fr);
+    align-self: stretch;
+    min-height: 100%;
+}
+
+.tm-homepage--dock .tm-homepage-focus-day-metrics .tm-homepage-focus-stat-grid,
+.tm-homepage--mobile .tm-homepage-focus-day-metrics .tm-homepage-focus-stat-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(0, 1fr);
+}
+
+.tm-homepage--dock .tm-homepage-focus-today-layout {
     grid-template-columns: minmax(150px, 1.12fr) minmax(108px, 0.88fr);
     gap: 10px;
+}
+
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-today-layout {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 10px;
+}
+
+.tm-homepage--dock .tm-homepage-focus-calendar-wrap {
+    width: auto;
+}
+
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-wrap {
+    width: max-content;
+    max-width: 100%;
+}
+
+.tm-homepage--dock .tm-homepage-focus-calendar-popover {
+    width: 100%;
+}
+
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-popover {
+    width: max-content;
+    max-width: 100%;
+}
+
+.tm-homepage--dock .tm-homepage-focus-calendar-week,
+.tm-homepage--dock .tm-homepage-focus-calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-week,
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-grid {
+    grid-template-columns: repeat(7, 28px);
+    justify-content: start;
+}
+
+.tm-homepage--dock .tm-homepage-focus-calendar-day {
+    width: 100%;
+    min-height: 21px;
+}
+
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-day {
+    width: 28px;
+    min-height: 0;
+}
+
+.tm-homepage--dock .tm-homepage-card--focus.is-narrow .tm-homepage-focus-today-layout {
+    grid-template-columns: minmax(150px, 1.12fr) minmax(108px, 0.88fr);
+}
+
+.tm-homepage--dock .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-wrap {
+    width: auto;
+}
+
+.tm-homepage--dock .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-popover {
+    width: 100%;
+}
+
+.tm-homepage--dock .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-week,
+.tm-homepage--dock .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.tm-homepage--dock .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-day {
+    width: 100%;
+    min-height: 21px;
 }
 
 .tm-homepage--mobile {
@@ -2816,6 +3223,27 @@
     gap: 10px;
 }
 
+.tm-homepage--mobile .tm-homepage-card--focus.is-narrow .tm-homepage-focus-today-layout {
+    grid-template-columns: minmax(150px, 1.12fr) minmax(108px, 0.88fr);
+}
+
+.tm-homepage--mobile .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-wrap {
+    width: auto;
+}
+
+.tm-homepage--mobile .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-popover {
+    width: 100%;
+}
+
+.tm-homepage--mobile .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-week,
+.tm-homepage--mobile .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.tm-homepage--mobile .tm-homepage-card--focus.is-narrow .tm-homepage-focus-calendar-day {
+    width: 100%;
+}
+
 .tm-homepage--mobile .tm-homepage-focus-day-summary-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -2836,6 +3264,8 @@
 }
 
 .tm-homepage--mobile .tm-homepage-focus-stat-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(0, 1fr);
     gap: 7px;
 }
 
@@ -2897,6 +3327,19 @@
     width: 100%;
     margin-top: 0;
     transform: none;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-calendar-wrap {
+    width: auto;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-calendar-week,
+.tm-homepage--mobile .tm-homepage-focus-calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.tm-homepage--mobile .tm-homepage-focus-calendar-day {
+    width: 100%;
 }
 
 .tm-homepage--mobile .tm-homepage-focus-calendar-day {
@@ -3044,14 +3487,43 @@
     font-size: 15px;
 }
 
+.tm-homepage--mobile .tm-homepage-summary-layout--style {
+    flex: 0 1 auto;
+    grid-template-columns: 1fr;
+}
+
+.tm-homepage--mobile .tm-homepage-summary-layout--style .tm-homepage-summary-stack {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(0, auto));
+}
+
+.tm-homepage--mobile .tm-homepage-summary-layout--style .tm-homepage-summary-list {
+    display: contents;
+}
+
+.tm-homepage--mobile .tm-homepage-summary-layout--style .tm-homepage-summary-style {
+    display: flex;
+    grid-column: 1;
+    grid-row: auto;
+    flex-direction: column;
+}
+
+.tm-homepage--mobile .tm-homepage-summary-card-head {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.tm-homepage--mobile .tm-homepage-summary-work-style-note {
+    flex-basis: auto;
+    max-width: none;
+    margin-left: 0;
+    text-align: left;
+}
+
 .tm-homepage--mobile .tm-homepage-trend-wrap,
 .tm-homepage-card--trend.is-narrow .tm-homepage-trend-wrap {
     padding: 6px 6px 4px;
-}
-
-.tm-homepage--mobile .tm-homepage-trend-axis,
-.tm-homepage-card--trend.is-narrow .tm-homepage-trend-axis {
-    gap: 2px;
 }
 
 .tm-homepage--mobile .tm-homepage-trend-axis-value,
@@ -3120,6 +3592,11 @@
     .tm-homepage--mobile .tm-homepage-summary-layout,
     .tm-homepage--mobile .tm-homepage-summary-list {
         grid-template-columns: 1fr;
+    }
+
+    .tm-homepage--mobile .tm-homepage-summary-layout--style .tm-homepage-summary-stack {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(2, minmax(0, auto));
     }
 
     .tm-homepage--mobile .tm-homepage-summary-main {
@@ -3492,6 +3969,19 @@
 
 .tm-home-project-stats .n.is-overdue {
     color: var(--tm-home-danger);
+}
+
+/* Same red mix as the summary row (buildProcrastinationRowStyle). */
+.tm-home-project-stats .tm-home-project-drag {
+    cursor: help;
+}
+
+.tm-home-project-stats .tm-home-project-drag .n {
+    color: color-mix(in srgb, var(--tm-home-danger) var(--tm-home-procrastination-text-mix, 36%), var(--tm-home-text));
+}
+
+.tm-homepage-risk-hint {
+    margin-top: 8px;
 }
 
 .tm-home-project-stats .range {
@@ -4669,100 +5159,105 @@
         return dayDiff(today, normalized) > 0;
     }
 
-    function buildTrend(tasks, todayKey, rangeDays) {
-        const doneMap = new Map();
-        const days = [];
-        for (let i = rangeDays - 1; i >= 0; i -= 1) days.push(shiftDateKey(todayKey, -i));
-        const allowKeys = new Set(days);
+    function buildChartActivity(tasks, todayKey) {
+        const done = new Map();
+        const created = new Map();
+        function addDay(map, key) {
+            if (key && key <= todayKey) map.set(key, (map.get(key) || 0) + 1);
+        }
         tasks.forEach((task) => {
-            if (!task?.done) return;
-            const key = resolveTaskDoneMetricKey(task);
-            if (!key || isFutureDateKey(key, todayKey) || !allowKeys.has(key)) return;
-            doneMap.set(key, (doneMap.get(key) || 0) + 1);
+            // Block creation date; copying or moving a block across documents resets it.
+            addDay(created, normalizeDateKey(task?.created || ""));
+            if (task?.done) addDay(done, resolveTaskDoneMetricKey(task));
         });
-        const points = days.map((key, index) => ({
-            key,
-            label: formatShortDate(key),
-            value: doneMap.get(key) || 0,
-            index,
-        }));
+        const currentYear = Number(todayKey.slice(0, 4));
+        const years = new Set([currentYear, currentYear - 1]);
+        for (const map of [done, created]) {
+            for (const key of map.keys()) years.add(Number(key.slice(0, 4)));
+        }
+        return { done, created, years: Array.from(years).sort((a, b) => b - a) };
+    }
+
+    function resolveChartRange(selection, todayKey) {
+        const year = /^year-(\d{4})$/.exec(selection)?.[1];
+        const months = CHART_MONTH_RANGES[selection];
+        let startKey;
+        let endKey = todayKey;
+        if (year && year <= todayKey.slice(0, 4)) {
+            startKey = year + "-01-01";
+            if (year < todayKey.slice(0, 4)) endKey = year + "-12-31";
+        } else if (months) {
+            startKey = shiftMonthKey(todayKey.slice(0, 7), 1 - months) + "-01";
+        } else {
+            const days = CHART_DAY_RANGES[selection] || HOMEPAGE_RECENT_DAYS;
+            startKey = shiftDateKey(todayKey, 1 - days);
+        }
         return {
-            points,
-            maxValue: Math.max(1, ...points.map((point) => point.value)),
+            startKey,
+            endKey,
+            dayCount: dayDiff(startKey, endKey) + 1,
+            crossesYears: startKey.slice(0, 4) !== endKey.slice(0, 4),
         };
     }
 
-    function buildStreak(tasks, todayKey) {
-        const doneSet = new Set();
-        tasks.forEach((task) => {
-            if (!task?.done) return;
-            const key = resolveTaskDoneMetricKey(task);
-            if (key && !isFutureDateKey(key, todayKey)) doneSet.add(key);
-        });
+    function buildTrend(activity, range) {
+        const monthly = range.dayCount > 90;
+        const buckets = new Map();
+        for (let day = range.startKey; day <= range.endKey; day = shiftDateKey(day, 1)) {
+            const key = monthly ? day.slice(0, 7) : day;
+            if (!buckets.has(key)) {
+                const shortLabel = monthly
+                    ? __tmT("date.monthNumber", { value1: Number(key.slice(5)) })
+                    : formatShortDate(day);
+                const label = monthly ? formatMonthLabel(key) : (range.crossesYears ? day : shortLabel);
+                buckets.set(key, { key, label, shortLabel, value: 0, created: 0 });
+            }
+            const point = buckets.get(key);
+            point.value += activity.done.get(day) || 0;
+            point.created += activity.created.get(day) || 0;
+        }
+        return { points: Array.from(buckets.values()), monthly, range };
+    }
+
+    function buildStreak(done, todayKey) {
         let streak = 0;
-        // 连续完成按“上一天”为统计截止点，避免今天还没结束时提前拉长 streak。
+        // Count through yesterday so today's completion does not extend the streak early.
         let cursor = shiftDateKey(todayKey, -1);
-        while (doneSet.has(cursor)) {
+        while (done.has(cursor)) {
             streak += 1;
             cursor = shiftDateKey(cursor, -1);
         }
         return streak;
     }
 
-    function buildHeatmap(tasks, todayKey, ctx, profile) {
-        const doneMap = new Map();
-        tasks.forEach((task) => {
-            if (!task?.done) return;
-            const key = resolveTaskDoneMetricKey(task);
-            if (!key || isFutureDateKey(key, todayKey)) return;
-            doneMap.set(key, (doneMap.get(key) || 0) + 1);
-        });
-
-        const maxCount = Math.max(1, ...Array.from(doneMap.values(), (value) => Number(value) || 0));
-        const cellSize = profile === "mobile" ? 14 : (profile === "dock" ? 16 : 17);
-        const gapSize = profile === "mobile" ? 5 : 6;
+    function buildHeatmap(done, range, profile) {
         const monthCols = profile === "mobile" ? 3 : 4;
-        const monthCount = 12;
-        const today = buildDateFromKey(todayKey) || new Date();
-        let maxVisibleDays = 1;
-        for (let offset = monthCount - 1; offset >= 0; offset -= 1) {
-            const probe = new Date(today.getFullYear(), today.getMonth() - offset, 1, 12, 0, 0, 0);
-            const daysInMonth = new Date(probe.getFullYear(), probe.getMonth() + 1, 0).getDate();
-            const isCurrentMonth = probe.getFullYear() === today.getFullYear() && probe.getMonth() === today.getMonth();
-            const visibleDays = isCurrentMonth ? Math.min(daysInMonth, today.getDate()) : daysInMonth;
-            maxVisibleDays = Math.max(maxVisibleDays, visibleDays);
-        }
-        const sharedRows = Math.max(1, Math.ceil(maxVisibleDays / monthCols));
-        const months = [];
-        for (let offset = monthCount - 1; offset >= 0; offset -= 1) {
-            const dt = new Date(today.getFullYear(), today.getMonth() - offset, 1, 12, 0, 0, 0);
-            const y = dt.getFullYear();
-            const m = dt.getMonth();
-            const daysInMonth = new Date(y, m + 1, 0).getDate();
-            const isCurrentMonth = y === today.getFullYear() && m === today.getMonth();
-            const visibleDays = isCurrentMonth ? Math.min(daysInMonth, today.getDate()) : daysInMonth;
-            const cells = [];
-            for (let day = 1; day <= visibleDays; day += 1) {
-                const key = formatDateKey(new Date(y, m, day, 12, 0, 0, 0));
-                const count = doneMap.get(key) || 0;
-                let level = 0;
-                if (count > 0) level = Math.min(4, Math.max(1, Math.ceil((count / maxCount) * 4)));
-                cells.push({ key, count, level, day });
+        const months = new Map();
+        let maxCount = 1;
+        for (let day = range.startKey; day <= range.endKey; day = shiftDateKey(day, 1)) {
+            const key = day.slice(0, 7);
+            if (!months.has(key)) {
+                const label = range.crossesYears
+                    ? formatMonthLabel(key)
+                    : __tmT("date.monthNumber", { value1: Number(key.slice(5)) });
+                months.set(key, { key, label, cells: [] });
             }
-            months.push({
-                key: `${y}-${String(m + 1).padStart(2, "0")}`,
-                label: __tmT("date.monthNumber", { value1: m + 1 }),
-                rows: sharedRows,
-                cells,
+            const count = done.get(day) || 0;
+            maxCount = Math.max(maxCount, count);
+            months.get(key).cells.push({ key: day, count });
+        }
+        const rows = Math.max(...Array.from(months.values(), (month) => Math.ceil(month.cells.length / monthCols)));
+        for (const month of months.values()) {
+            month.rows = rows;
+            month.cells.forEach((cell) => {
+                cell.level = Math.ceil((cell.count / maxCount) * 4);
             });
         }
         return {
-            months,
-            cellSize,
-            gapSize,
+            months: Array.from(months.values()),
+            cellSize: profile === "mobile" ? 14 : (profile === "dock" ? 16 : 17),
+            gapSize: profile === "mobile" ? 5 : 6,
             monthCols,
-            monthCount,
-            maxCount,
         };
     }
 
@@ -4827,14 +5322,6 @@
             .slice(0, 6);
     }
 
-    function getProcrastinationLevel(score) {
-        const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
-        if (value >= 75) return __tmT("homepage.critical");
-        if (value >= 50) return __tmT("homepage.highRisk");
-        if (value >= 25) return __tmT("homepage.watch");
-        return __tmT("homepage.healthy");
-    }
-
     function normalizeProcrastinationMetrics(metrics, fallback = {}) {
         const source = (metrics && typeof metrics === "object") ? metrics : {};
         const base = (fallback && typeof fallback === "object") ? fallback : {};
@@ -4849,7 +5336,8 @@
         return {
             score,
             level: String(source.level || base.level || "").trim(),
-            levelLabel: String(source.levelLabel || base.levelLabel || getProcrastinationLevel(score)).trim(),
+            // Level labels come from the kernel; the homepage keeps no second copy of the thresholds.
+            levelLabel: String(source.levelLabel || base.levelLabel || "").trim(),
             dueTaskCount,
             overdueCount,
             overduePercent,
@@ -4857,7 +5345,107 @@
             penaltyEnabled: source.penaltyEnabled === false || base.penaltyEnabled === false ? false : true,
             rescheduleCount: Math.max(0, Math.round(toNumber(source.rescheduleCount, base.rescheduleCount || 0))),
             windowDays: Math.max(1, Math.round(toNumber(source.windowDays, base.windowDays || 30))),
+            draggingCount: Math.max(0, Math.round(toNumber(source.draggingCount, 0))),
+            avgDelayDays: Math.max(0, Math.round(toNumber(source.avgDelayDays, 0))),
+            createdInWindow: Math.max(0, Math.round(toNumber(source.createdInWindow, 0))),
+            doneInWindow: Math.max(0, Math.round(toNumber(source.doneInWindow, 0))),
+            stalled: source.stalled === true,
+            parts: Array.isArray(source.parts) ? source.parts : [],
+            topDragging: Array.isArray(source.topDragging) ? source.topDragging : [],
         };
+    }
+
+    const PROCRASTINATION_PART_LABEL_KEYS = Object.freeze({
+        age: "homepage.procrastinationPartAge",
+        over: "homepage.procrastinationPartOver",
+        resched: "homepage.procrastinationPartResched",
+        flow: "homepage.procrastinationPartFlow",
+        penalty: "homepage.procrastinationPartPenalty",
+    });
+
+    // Multi-line breakdown shown as a native tooltip (summary row and project cards).
+    function formatProcrastinationBreakdown(metrics) {
+        const item = normalizeProcrastinationMetrics(metrics);
+        const lines = [`${__tmT("homepage.procrastinationScore")} ${item.score}${item.levelLabel ? ` · ${item.levelLabel}` : ""}`];
+        item.parts.forEach((part) => {
+            const key = PROCRASTINATION_PART_LABEL_KEYS[String(part?.key || "")];
+            if (!key) return;
+            const weight = Math.round(toNumber(part.weight, 0));
+            lines.push(`${__tmT(key)} ${Math.round(toNumber(part.ratio, 0) * weight)} / ${weight}`);
+        });
+        lines.push(__tmT("homepage.procrastinationBreakdownTail", {
+            overdueCount: item.overdueCount,
+            windowDays: item.windowDays,
+            rescheduleCount: item.rescheduleCount,
+        }));
+        return lines.join("\n");
+    }
+
+    const WORK_STYLE_DEFS = Object.freeze({
+        inflow: { label: "homepage.workStyleInflow", desc: "homepage.workStyleInflowDesc" },
+        steady: { label: "homepage.workStyleSteady", desc: "homepage.workStyleSteadyDesc" },
+        backlog: { label: "homepage.workStyleBacklog", desc: "homepage.workStyleBacklogDesc" },
+        catchup: { label: "homepage.workStyleCatchup", desc: "homepage.workStyleCatchupDesc" },
+        stalled: { label: "homepage.workStyleStalled", desc: "homepage.workStyleStalledDesc" },
+    });
+    // Quadrant order: top-left, top-right, bottom-left, bottom-right.
+    const WORK_STYLE_QUADRANTS = Object.freeze(["inflow", "steady", "backlog", "catchup"]);
+
+    function classifyWorkStyle(metrics, dragLine) {
+        const item = normalizeProcrastinationMetrics(metrics);
+        const ageRatio = toNumber(item.parts.find((part) => part?.key === "age")?.ratio, 0);
+        const keepUp = item.doneInWindow >= item.createdInWindow;
+        const lowDrag = ageRatio < dragLine;
+        const key = item.stalled ? "stalled" : (keepUp ? (lowDrag ? "steady" : "catchup") : (lowDrag ? "inflow" : "backlog"));
+        // x: completions ÷ additions (1 = keeping up, centre line); y: the "how long" part (dragLine = centre line).
+        const ratio = item.stalled ? 1 : (item.createdInWindow > 0 ? item.doneInWindow / item.createdInWindow : 2);
+        const y = ageRatio < dragLine
+            ? (ageRatio / dragLine) * 0.5
+            : 0.5 + ((ageRatio - dragLine) / Math.max(0.01, 1 - dragLine)) * 0.5;
+        return {
+            key,
+            item,
+            // Stalled items have no flow ratio; place them on the neutral center line.
+            x: item.stalled ? 0.5 : Math.max(0.06, Math.min(0.94, ratio / 2)),
+            y: Math.max(0.24, Math.min(0.76, y)),
+        };
+    }
+
+    function collectHomepageProjectDocs(projects) {
+        if (!projects || typeof projects !== "object" || projects.scope === "unsupported") return [];
+        if (projects.scope === "doc") return [];
+        const out = [];
+        (Array.isArray(projects.sections) ? projects.sections : []).forEach((section) => {
+            (Array.isArray(section?.cards) ? section.cards : []).forEach((card) => {
+                const id = String(card?.id || "").trim();
+                if (id && !out.some((item) => item.id === id)) out.push({ id, name: String(card?.name || ""), color: String(card?.color || "") });
+            });
+        });
+        return out.slice(0, 24);
+    }
+
+    function buildWorkStyle(procrastination, ctx) {
+        const dragLine = toNumber(ctx?.procrastinationConfig?.styleDragLine, 0.4) || 0.4;
+        const me = classifyWorkStyle(procrastination, dragLine);
+        const docs = typeof ctx?.getDocProcrastinationMetrics === "function" ? collectHomepageProjectDocs(ctx?.projects) : [];
+        const dots = [];
+        const stalled = [];
+        docs.forEach((doc) => {
+            const metrics = ctx.getDocProcrastinationMetrics(doc.id);
+            if (!metrics || !(toNumber(metrics.draggingCount, 0) || toNumber(metrics.createdInWindow, 0)
+                || toNumber(metrics.doneInWindow, 0) || toNumber(metrics.dueTaskCount, 0) || metrics.stalled)) return;
+            const style = classifyWorkStyle(metrics, dragLine);
+            if (style.key === "stalled") stalled.push(doc.name);
+            dots.push({ ...doc, x: style.x, y: style.y, key: style.key });
+        });
+        return { key: me.key, item: me.item, x: me.x, y: me.y, dots, stalled };
+    }
+
+    function formatProcrastinationReason(item) {
+        const days = Math.max(0, Math.round(toNumber(item?.age, 0)));
+        return item?.overdue === true
+            ? __tmT("task.procrastinationReasonOverdue", { days })
+            : __tmT("task.procrastinationReasonIdle", { days });
     }
 
     function buildProcrastinationRowStyle(score) {
@@ -4876,12 +5464,7 @@
 
     function formatProcrastinationNote(metrics) {
         const item = normalizeProcrastinationMetrics(metrics);
-        const parts = [
-            __tmT("homepage.overdue", { overduePercent: item.overduePercent, overdueCount: item.overdueCount, dueTaskCount: item.dueTaskCount }),
-            item.penaltyEnabled ? __tmT("homepage.penalty", { penaltyCount: item.penaltyCount }) : "",
-            __tmT("homepage.postponed", { rescheduleCount: item.rescheduleCount }),
-        ].filter(Boolean);
-        return `${item.levelLabel} · ${parts.join("，")}`;
+        return __tmT("homepage.procrastinationNote", { draggingCount: item.draggingCount, avgDelayDays: item.avgDelayDays });
     }
 
     // 任务状态、任务分布、风险提醒与项目进度卡片保持同一统计范围：只统计实际展示为页签/卡片的文档，
@@ -4898,8 +5481,17 @@
         const tasks = flattenTasks(ctx?.tasks || []);
         const scopeTasks = resolveOverviewScopeTasks(tasks, ctx?.projects);
         const relationIndex = buildTaskRelationIndex(tasks);
-        const trend = buildTrend(tasks, todayKey, runtime.rangeDays);
-        const weekDone = buildTrend(tasks, todayKey, 7).points.reduce((sum, point) => sum + point.value, 0);
+        const activity = buildChartActivity(tasks, todayKey);
+        const { trendRange, heatmapRange } = getHomepageSettingsData();
+        const trend = buildTrend(activity, resolveChartRange(trendRange, todayKey));
+        const recentStart = shiftDateKey(todayKey, 1 - HOMEPAGE_RECENT_DAYS);
+        const weekStart = shiftDateKey(todayKey, -6);
+        let rangeDone = 0;
+        let weekDone = 0;
+        for (const [day, count] of activity.done) {
+            if (day >= recentStart) rangeDone += count;
+            if (day >= weekStart) weekDone += count;
+        }
         // 状态概览将取消任务归入已完成，不改变任务本身或实际完成记录。
         const unfinishedTasks = scopeTasks.filter((task) => !task?.done
             && String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? "").trim() !== "-");
@@ -4939,27 +5531,47 @@
             try { rawProcrastination = globalThis.__tmGetProcrastinationMetricsForTasks(tasks, { todayKey }); } catch (e) { rawProcrastination = null; }
         }
         const procrastination = normalizeProcrastinationMetrics(rawProcrastination, fallbackProcrastination);
-        const streak = buildStreak(tasks, todayKey);
+        const taskById = new Map(tasks.map((task) => [String(task?.id || "").trim(), task]));
+        const dragList = procrastination.topDragging.map((item) => {
+            const id = String(item?.id || "").trim();
+            const task = taskById.get(id);
+            return {
+                id,
+                title: String(item?.title || (task ? resolveTaskTitle(task) : "")).trim(),
+                doc: task ? resolveTaskDoc(task) : "",
+                reason: formatProcrastinationReason(item),
+                overdue: item?.overdue === true,
+            };
+        }).filter((item) => item.id);
+        // "Planned today" = due today or completed today (canceled tasks excluded).
+        const todayPlanned = scopeTasks.filter((task) => {
+            if (String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? "").trim() === "-") return false;
+            return resolveTaskDueKey(task) === todayKey || (task?.done && resolveTaskDoneMetricKey(task) === todayKey);
+        }).length;
+        const streak = buildStreak(activity.done, todayKey);
         const profile = resolveProfile(ctx);
         const scopeLabel = String(ctx?.currentDocName || ctx?.currentGroupName || __tmT("homepage.currentScope")).trim() || __tmT("homepage.currentScope");
-        const rangeDone = trend.points.reduce((sum, point) => sum + (Number(point?.value) || 0), 0);
         const subtitleParts = [];
-        if (rangeDone > 0) subtitleParts.push(__tmT("homepage.completedInTheLastDays", { rangeDays: runtime.rangeDays, rangeDone: rangeDone }));
+        if (rangeDone > 0) subtitleParts.push(__tmT("homepage.completedInTheLastDays", { rangeDays: HOMEPAGE_RECENT_DAYS, rangeDone: rangeDone }));
         if (overdue > 0) subtitleParts.push(__tmT("homepage.overdue2", { overdue: overdue }));
         return {
             tasks,
             trend,
-            heatmap: buildHeatmap(tasks, todayKey, ctx, profile),
+            heatmap: buildHeatmap(activity.done, resolveChartRange(heatmapRange, todayKey), profile),
+            chartYears: activity.years,
             distribution: buildDistribution(scopeTasks),
             recentDone: buildRecentDone(globalThis.__tmProjectVisibility?.filterTasks(tasks) || tasks, todayKey),
             riskList: buildRiskList(globalThis.__tmProjectVisibility?.filterTasks(scopeTasks) || scopeTasks, todayKey, relationIndex),
+            dragList,
+            workStyle: buildWorkStyle(procrastination, ctx),
             procrastination,
             title: __tmT("homepage.home", { scopeLabel: scopeLabel }),
             subtitle: subtitleParts.length
                 ? subtitleParts.join("，")
-                : __tmT("homepage.noCompletionsInTheLastDaysYet", { rangeDays: runtime.rangeDays }),
+                : __tmT("homepage.noCompletionsInTheLastDaysYet", { rangeDays: HOMEPAGE_RECENT_DAYS }),
             kpis: {
-                todayDone: trend.points.length ? trend.points[trend.points.length - 1].value : 0,
+                todayDone: activity.done.get(todayKey) || 0,
+                todayPlanned,
                 weekDone,
                 overdue,
                 total: scopeTasks.length,
@@ -5026,31 +5638,26 @@
         };
     }
 
-    function getTrendAxisStep(pointCount) {
-        const count = Math.max(0, Number(pointCount) || 0);
-        if (count <= 14) return 1;
-        if (count <= 35) return 5;
-        if (count <= 70) return 7;
-        return 10;
-    }
-
     function renderTrendAxis(trend) {
-        const points = Array.isArray(trend?.points) ? trend.points.slice() : [];
+        const points = Array.isArray(trend?.points) ? trend.points : [];
         if (!points.length) return "";
-        const lastIndex = points.length - 1;
-        const step = getTrendAxisStep(points.length);
-        return `
-            <div class="tm-homepage-trend-axis" style="--tm-home-trend-days:${points.length};">
-                ${points.map((point, index) => {
-                    const showDate = ((lastIndex - index) % step === 0) || index === 0 || index === lastIndex;
-                    return `
-                    <div class="tm-homepage-trend-axis-item" aria-label="${esc(__tmT("homepage.doneItems", { label: point.label, value2: Number(point.value) || 0 }))}">
-                        <span class="tm-homepage-trend-axis-date ${showDate ? "" : "is-empty"}">${showDate ? esc(point.label || "") : ""}</span>
-                    </div>
-                `;
-                }).join("")}
-            </div>
-        `;
+        // Keep the tick count bounded even when displaying 90 daily points.
+        const tickCount = Math.min(points.length, 7);
+        let previousYear = "";
+        const ticks = Array.from({ length: tickCount }, (_, tick) => {
+            const index = tickCount === 1 ? 0 : Math.round(tick * (points.length - 1) / (tickCount - 1));
+            const point = points[index];
+            const year = String(point.key || "").slice(0, 4);
+            const showYear = trend.range?.crossesYears && year !== previousYear;
+            previousYear = year;
+            return `
+                <div class="tm-homepage-trend-axis-item" style="grid-column:${index + 1};" aria-label="${esc(__tmT("homepage.doneItems", { label: point.label, value2: Number(point.value) || 0 }))}">
+                    <span class="tm-homepage-trend-axis-date">${esc(point.shortLabel || point.label || "")}</span>
+                    ${showYear ? `<span class="tm-homepage-trend-axis-year">${esc(year)}</span>` : ""}
+                </div>
+            `;
+        });
+        return `<div class="tm-homepage-trend-axis" style="--tm-home-trend-points:${points.length};">${ticks.join("")}</div>`;
     }
 
     function buildSmoothSvgPath(points) {
@@ -5088,12 +5695,29 @@
         return path;
     }
 
-    function renderRangeSwitch() {
-        const rangeOptions = [7, 30, 90];
+    function renderChartRange(chart, years) {
+        const selection = getHomepageSettingsData()[`${chart}Range`];
+        const selectedYear = Number(selection.match(/^year-(\d{4})$/)?.[1]);
+        const options = [
+            ...Object.entries(CHART_DAY_RANGES)
+                .filter(([value]) => value !== "7d" || chart === "trend")
+                .map(([value, days]) => [value, __tmT("homepage.lastDays3", { value1: days })]),
+            ...Object.entries(CHART_MONTH_RANGES).map(([value, months]) => [
+                value, __tmT("homepage.chartLastMonths", { months }),
+            ]),
+        ];
+        const availableYears = selectedYear && !years.includes(selectedYear)
+            ? [...years, selectedYear].sort((a, b) => b - a)
+            : years;
+        const renderOption = ([value, label]) => `<option value="${esc(value)}"${value === selection ? " selected" : ""}>${esc(label)}</option>`;
+        const label = __tmT(chart === "trend" ? "homepage.trendRange" : "homepage.heatmapRange");
         return `
-            <div class="tm-homepage-range-switch" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.trendRange")}">
-                ${rangeOptions.map((days) => `<button type="button" class="tm-homepage-range-btn ${runtime.rangeDays === days ? "is-active" : ""}" data-tm-home-range="${days}">${__tmT("homepage.days", { days: days })}</button>`).join("")}
-            </div>
+            <select class="tm-homepage-chart-range" data-tm-home-chart-range="${chart}" aria-label="${esc(label)}">
+                ${options.map(renderOption).join("")}
+                <optgroup label="${esc(__tmT("homepage.chartCalendarYear"))}">
+                    ${availableYears.map((year) => renderOption(["year-" + year, __tmT("date.yearNumber", { value1: year })])).join("")}
+                </optgroup>
+            </select>
         `;
     }
 
@@ -5166,9 +5790,17 @@
         const padding = { top: Math.max(20, height / 4), right: 12, bottom: 10, left: 12 };
         const innerW = width - padding.left - padding.right;
         const innerH = height - padding.top - padding.bottom;
-        const maxValue = Math.max(1, ...points.map((point) => Number(point?.value) || 0));
+        const maxValue = Math.max(1, ...points.map((point) => Math.max(Number(point?.value) || 0, Number(point?.created) || 0)));
         const xOf = (index) => padding.left + (points.length <= 1 ? innerW / 2 : (innerW / (points.length - 1)) * index);
         const yOf = (value) => padding.top + innerH - ((Number(value) || 0) / maxValue) * innerH;
+        // Same smoothing and endpoint/baseline clamping as the completion line.
+        const createdPath = points.some((point) => Number(point?.created) > 0)
+            ? buildSmoothSvgPath(points.map((point, index) => ({
+                x: xOf(index),
+                y: yOf(point.created),
+                value: Number(point?.created) || 0,
+            })))
+            : "";
         const chartPoints = points.map((point, index) => ({
             x: xOf(index),
             y: yOf(point.value),
@@ -5221,6 +5853,7 @@
                 </defs>
                 ${gridLines}
                 <path d="${areaPath}" class="tm-homepage-trend-area"></path>
+                ${createdPath ? `<path d="${createdPath}" class="tm-homepage-trend-created"><title>${esc(__tmT("homepage.trendCreated"))}</title></path>` : ""}
                 <path d="${linePath}" class="tm-homepage-trend-line-glow"></path>
                 <path d="${linePath}" class="tm-homepage-trend-line"></path>
                 ${markers}
@@ -5251,12 +5884,12 @@
         const months = Array.isArray(heatmap?.months) ? heatmap.months : [];
         if (!months.length) return `<div class="tm-homepage-chart-empty">${__tmT("homepage.noHeatmapDataYet")}</div>`;
         return `
-            <div class="tm-homepage-heatmap-shell" style="--tm-home-heatmap-cell:${Math.max(12, Number(heatmap?.cellSize) || 16)}px;--tm-home-heatmap-gap:${Math.max(4, Number(heatmap?.gapSize) || 5)}px;--tm-home-heatmap-month-cols:${Math.max(3, Number(heatmap?.monthCols) || 4)};">
+            <div class="tm-homepage-heatmap-shell" tabindex="0" role="region" aria-label="${esc(__tmT("homepage.completionHeatmap"))}" style="--tm-home-heatmap-cell:${Math.max(12, Number(heatmap?.cellSize) || 16)}px;--tm-home-heatmap-gap:${Math.max(4, Number(heatmap?.gapSize) || 5)}px;--tm-home-heatmap-month-cols:${Math.max(3, Number(heatmap?.monthCols) || 4)};">
                 <div class="tm-homepage-heatmap-grid" role="img" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.completionHeatmap")}">
                     ${months.map((month) => `
                     <div class="tm-homepage-heatmap-month">
                         <div class="tm-homepage-heatmap-month-label">${esc(month?.label || "")}</div>
-                        <div class="tm-homepage-heatmap-month-grid" style="--tm-home-heatmap-month-rows:${Math.max(1, Number(month?.rows) || 1)};">
+                        <div class="tm-homepage-heatmap-month-grid" style="--tm-home-heatmap-month-rows:${month.rows};--tm-home-heatmap-month-cols:${Math.ceil(month.cells.length / month.rows)};">
                             ${(Array.isArray(month?.cells) ? month.cells : []).map((cell) => `
                                 <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l${Number(cell?.level) || 0}${cell?.placeholder ? " tm-homepage-heatmap-cell--placeholder" : ""}"${cell?.placeholder ? ' aria-hidden="true"' : ` title="${esc(__tmT("homepage.doneItems2", { value1: cell?.key || "", value2: Number(cell?.count) || 0 }))}"`}></span>
                             `).join("")}
@@ -5313,13 +5946,15 @@
                 ${items.map((item) => {
                     const meta = kind === "risk"
                         ? (item.diffDays < 0 ? __tmT("homepage.overdueByDays", { value1: Math.abs(item.diffDays) }) : (item.diffDays === 0 ? __tmT("homepage.dueToday") : __tmT("homepage.daysFromNow", { diffDays: item.diffDays })))
-                        : formatListDate(item.dateKey);
+                        : kind === "drag" ? String(item.reason || "") : formatListDate(item.dateKey);
                     const titlePresentation = getTaskTitlePresentation(item.title, __tmT("kernel.untitledTask"));
                     const badge = kind === "risk"
                         ? `<span class="tm-homepage-list-badge ${item.diffDays < 0 ? "is-danger" : "is-warning"}">${esc(meta)}</span>`
-                        : `<span class="tm-homepage-list-date">${esc(meta)}</span>`;
+                        : kind === "drag"
+                            ? `<span class="tm-homepage-list-badge ${item.overdue ? "is-danger" : ""}">${esc(meta)}</span>`
+                            : `<span class="tm-homepage-list-date">${esc(meta)}</span>`;
                     return `
-                        <button type="button" class="tm-homepage-list-item" data-tm-home-open-task="${esc(item.id || "")}">
+                        <button type="button" class="tm-homepage-list-item" data-tm-home-open-task="${esc(item.id || "")}"${kind === "risk" || kind === "drag" ? ` data-tm-home-task-menu="${esc(item.id || "")}"` : ""}>
                             <span class="tm-homepage-list-main">
                                 <span class="tm-homepage-list-title" title="${esc(titlePresentation.text)}">${titlePresentation.html}</span>
                                 <span class="tm-homepage-list-doc">${esc(item.doc || "")}${item.priority ? ` · ${esc(item.priority)}` : ""}</span>
@@ -5370,42 +6005,68 @@
         `;
     }
 
+    function renderWorkStyleSummaryNote(workStyle) {
+        const style = workStyle && typeof workStyle === "object" ? workStyle : { key: "steady", stalled: [] };
+        const def = WORK_STYLE_DEFS[style.key] || WORK_STYLE_DEFS.steady;
+        const stalledNames = (Array.isArray(style.stalled) ? style.stalled : []).filter(Boolean);
+        return `${esc(__tmT(def.desc))}${stalledNames.length ? `<br>${esc(__tmT("homepage.workStyleStalledDocs", { names: stalledNames.join("\u3001") }))}` : ""}`;
+    }
+
+    function renderWorkStyleTile(workStyle) {
+        const style = workStyle && typeof workStyle === "object" ? workStyle : { key: "steady", item: {}, dots: [], stalled: [] };
+        const def = WORK_STYLE_DEFS[style.key] || WORK_STYLE_DEFS.steady;
+        const item = normalizeProcrastinationMetrics(style.item);
+        const aggregateTitle = __tmT("homepage.workStyleAggregateTooltip", {
+            label: __tmT(def.label),
+            windowDays: item.windowDays,
+            createdCount: item.createdInWindow,
+            doneCount: item.doneInWindow,
+            draggingCount: item.draggingCount,
+        });
+        const pct = (value) => `${Math.round(toNumber(value, 0.5) * 1000) / 10}%`;
+        return `
+            <article class="tm-homepage-summary-style">
+                <div class="tm-homepage-summary-style-quad" role="img" aria-label="${esc(__tmT("homepage.workStyle"))}：${esc(__tmT(def.label))}">
+                    ${WORK_STYLE_QUADRANTS.map((key) => `<span class="tm-homepage-summary-style-cell${key === style.key ? " is-hit" : ""}" title="${esc(__tmT(`${WORK_STYLE_DEFS[key].label}Hint`))}">${esc(__tmT(WORK_STYLE_DEFS[key].label))}</span>`).join("")}
+                    ${(Array.isArray(style.dots) ? style.dots : []).map((dot) => `<span class="tm-homepage-summary-style-dot${dot.key === "stalled" ? " is-stalled" : ""}" style="left:${pct(dot.x)};top:${pct(dot.y)};${dot.color ? `--tm-doc-color:${esc(dot.color)};` : ""}" title="${esc(`${dot.name}：${__tmT((WORK_STYLE_DEFS[dot.key] || def).label)}`)}"></span>`).join("")}
+                    <span class="tm-homepage-summary-style-dot is-me${style.key === "stalled" ? " is-stalled" : ""}" style="left:${pct(style.x)};top:${pct(style.y)};" title="${esc(aggregateTitle)}"></span>
+                </div>
+            </article>
+        `;
+    }
+
     function renderSummaryCard(overview) {
         const procrastination = normalizeProcrastinationMetrics(overview?.procrastination || overview?.kpis?.procrastination);
         const rows = [
             {
-                label: __tmT("homepage.completionStreak"),
-                value: Number(overview?.kpis?.streak) || 0,
-                unit: __tmT("homepage.days2"),
-                note: Number(overview?.kpis?.streak) > 0 ? __tmT("homepage.currentStreak") : __tmT("homepage.noStreakYet"),
-                tone: Number(overview?.kpis?.streak) > 0 ? "is-success" : "",
-            },
-            {
                 label: __tmT("homepage.procrastinationScore"),
                 value: procrastination.score,
-                unit: "",
+                unit: procrastination.levelLabel,
                 note: formatProcrastinationNote(procrastination),
                 tone: "is-procrastination",
                 style: buildProcrastinationRowStyle(procrastination.score),
+                title: formatProcrastinationBreakdown(procrastination),
             },
         ];
         return `
             <section class="tm-homepage-card tm-homepage-card--summary">
-                <div class="tm-homepage-card-head">
+                <div class="tm-homepage-card-head tm-homepage-summary-card-head">
                     <div>
                         <div class="tm-homepage-card-title">${__tmT("homepage.completionSummary")}</div>
                         <div class="tm-homepage-card-desc">${__tmT("homepage.startWithTodayThenCheckConsistencyAndProcrastination")}</div>
                     </div>
+                    <div class="tm-homepage-summary-work-style-note">${renderWorkStyleSummaryNote(overview?.workStyle)}</div>
                 </div>
-                <div class="tm-homepage-summary-layout">
+                <div class="tm-homepage-summary-layout tm-homepage-summary-layout--style">
+                    <div class="tm-homepage-summary-stack">
                     <article class="tm-homepage-summary-main">
                         <div class="tm-homepage-summary-main-label">${__tmT("homepage.completedToday")}</div>
                         <div class="tm-homepage-summary-main-value">${overview?.kpis?.todayDone || 0}</div>
-                        <div class="tm-homepage-summary-main-note">${__tmT("homepage.lastDaysItems", { value1: overview?.kpis?.weekDone || 0 })}</div>
+                        <div class="tm-homepage-summary-main-note">${__tmT("homepage.todayPlannedWeekDone", { planned: overview?.kpis?.todayPlanned || 0, weekDone: overview?.kpis?.weekDone || 0 })}</div>
                     </article>
                     <div class="tm-homepage-summary-list">
                         ${rows.map((item) => `
-                            <div class="tm-homepage-summary-row ${item.tone}"${item.style ? ` style="${esc(item.style)}"` : ""}>
+                            <div class="tm-homepage-summary-row ${item.tone}"${item.style ? ` style="${esc(item.style)}"` : ""}${item.title ? ` title="${esc(item.title)}"` : ""}>
                                 <div class="tm-homepage-summary-row-label">${esc(item.label)}</div>
                                 <div class="tm-homepage-summary-row-value">
                                     <span class="tm-homepage-summary-row-number">${esc(item.value)}</span>
@@ -5415,6 +6076,8 @@
                             </div>
                         `).join("")}
                     </div>
+                    </div>
+                    ${renderWorkStyleTile(overview?.workStyle)}
                 </div>
             </section>
         `;
@@ -5985,12 +6648,13 @@
         return true;
     }
 
-    function renderTrendCard(ctx, profile, overview, layout = "wide") {
-        const summary = buildTrendSummary(overview?.trend);
+    function renderTrendCard(ctx, profile, { trend, chartYears }, layout = "wide") {
+        const summary = buildTrendSummary(trend);
+        const monthly = trend.monthly;
         const stats = [
             { label: __tmT("homepage.recent"), value: summary.last.value, note: summary.last.label || __tmT("homepage.none") },
             { label: __tmT("homepage.peak2"), value: summary.peak.value, note: summary.peak.label || __tmT("homepage.none") },
-            { label: __tmT("homepage.dailyAverage"), value: formatMetricValue(summary.average), note: __tmT("homepage.lastDays3", { value1: summary.pointCount || 0 }) },
+            { label: __tmT(monthly ? "homepage.monthlyAverage" : "homepage.dailyAverage"), value: formatMetricValue(summary.average), note: __tmT(monthly ? "homepage.chartMonthCount" : "homepage.chartDayCount", { count: summary.pointCount }) },
         ];
         return `
             <section class="tm-homepage-card tm-homepage-card--trend ${String(layout || "").trim() === "narrow" ? "is-narrow" : ""}">
@@ -5998,7 +6662,7 @@
                     <div class="tm-homepage-trend-head-main">
                         <div class="tm-homepage-trend-title-group">
                         <div class="tm-homepage-card-title">${__tmT("homepage.completionTrend")}</div>
-                        <div class="tm-homepage-card-desc">${__tmT("homepage.completionsOverTheLastDays", { rangeDays: runtime.rangeDays })}</div>
+                        <div class="tm-homepage-card-desc">${__tmT(monthly ? "homepage.trendMonthlyCompletions" : "homepage.trendDailyCompletions")}<span class="tm-homepage-trend-legend" aria-hidden="true"><span class="tm-homepage-trend-legend-item">${__tmT("homepage.trendDone")}</span><span class="tm-homepage-trend-legend-item is-created">${__tmT("homepage.trendCreated")}</span></span></div>
                         </div>
                         <div class="tm-homepage-trend-summary">
                             ${stats.map((item) => `
@@ -6010,12 +6674,12 @@
                             `).join("")}
                         </div>
                     </div>
-                    ${renderRangeSwitch()}
+                    ${renderChartRange("trend", chartYears)}
                 </div>
                 <div class="tm-homepage-trend-scroll">
                     <div class="tm-homepage-trend-scroll-inner">
-                        <div class="tm-homepage-trend-wrap">${buildTrendSvg(overview.trend, ctx, profile, layout)}</div>
-                        ${renderTrendAxis(overview?.trend)}
+                        <div class="tm-homepage-trend-wrap">${buildTrendSvg(trend, ctx, profile, layout)}</div>
+                        ${renderTrendAxis(trend)}
                     </div>
                 </div>
             </section>
@@ -6108,16 +6772,20 @@
             </div>`;
     }
 
-    function renderProjectStatsHtml(entity, overdueDays, overdueTasks = 0, isCompleted = false) {
+    function renderProjectStatsHtml(entity, overdueDays, overdueTasks = 0, isCompleted = false, procrastination = null) {
         const range = formatProjectDateRange(entity);
         const doing = Math.max(0, Math.round(toNumber(entity?.doing, 0)));
         const overdue = isProjectCardCompleted(entity, isCompleted) ? 0 : Math.max(0, Math.round(toNumber(overdueTasks, 0)));
+        const dragScore = procrastination && !isProjectCardCompleted(entity, isCompleted)
+            ? Math.max(0, Math.min(100, Math.round(toNumber(procrastination.score, 0))))
+            : 0;
         return `
             <div class="tm-home-project-stats">
                 <span><span class="n">${toNumber(entity?.total, 0)}</span>${__tmT("homepage.tasks")}</span>
                 <span><span class="n is-done">${toNumber(entity?.done, 0)}</span>${__tmT("homepage.done")}</span>
                 ${overdue > 0 ? `<span><span class="n is-overdue">${overdue}</span>${__tmT("homepage.overdue4")}</span>` : ""}
                 ${doing > 0 ? `<span><span class="n">${doing}</span>${__tmT("homepage.inProgress")}</span>` : ""}
+                ${dragScore > 0 ? `<span class="tm-home-project-drag" style="${esc(buildProcrastinationRowStyle(dragScore))}" title="${esc(formatProcrastinationBreakdown(procrastination))}"><span class="n">${dragScore}</span>${__tmT("homepage.projectDrag")}</span>` : ""}
                 ${range
                     ? `<span class="range ${overdueDays > 0 && !isProjectCardCompleted(entity, isCompleted) ? "is-urgent" : ""}">${esc(range)}</span>`
                     : `<span class="range is-none">${__tmT("homepage.notSettime")}</span>`}
@@ -6143,7 +6811,7 @@
                 ${renderProjectTimingStatusHtml(card, todayKey, isCompleted)}
                 ${renderProjectCalButton("doc", card.id, card.name, !!range, range ? __tmT("homepage.settingsdocumentsdate", { range: range }) : __tmT("homepage.settingsdocumentsstartDueDate"))}
             </div>
-            ${renderProjectStatsHtml(card, overdueDays, card.overdue, isCompleted)}
+            ${renderProjectStatsHtml(card, overdueDays, card.overdue, isCompleted, typeof runtime.ctx?.getDocProcrastinationMetrics === "function" ? normalizeProcrastinationMetrics(runtime.ctx.getDocProcrastinationMetrics(card.id)) : null)}
             ${renderProjectProgressHtml(card, isCompleted)}
         </div>`;
     }
@@ -6297,6 +6965,24 @@
         `;
     }
 
+    function renderHeatmapCard({ heatmap, chartYears }) {
+        return `
+            <section class="tm-homepage-card tm-homepage-card--heatmap">
+                <div class="tm-homepage-card-head">
+                    <div>
+                        <div class="tm-homepage-card-title">${__tmT("homepage.completionHeatmap")}</div>
+                        <div class="tm-homepage-card-desc">${__tmT("homepage.heatmapDailyCompletions")}</div>
+                    </div>
+                    <div class="tm-homepage-heatmap-controls">
+                        ${renderChartRange("heatmap", chartYears)}
+                        ${renderHeatmapLegend()}
+                    </div>
+                </div>
+                ${renderHeatmap(heatmap)}
+            </section>
+        `;
+    }
+
     function renderHomepageModule(id, ctx, profile, overview) {
         switch (id) {
             case "overview":
@@ -6308,18 +6994,7 @@
             case "trend":
                 return wrapHomepageModule(id, `<div data-tm-home-trend-slot>${renderTrendCard(ctx, profile, overview, getHomepageTrendLayout())}</div>`);
             case "heatmap":
-                return wrapHomepageModule(id, `
-                    <section class="tm-homepage-card tm-homepage-card--heatmap">
-                        <div class="tm-homepage-card-head">
-                            <div>
-                                <div class="tm-homepage-card-title">${__tmT("homepage.completionHeatmap")}</div>
-                                <div class="tm-homepage-card-desc">${__tmT("homepage.monthlyCompletionForTheCurrentScopeOverThePast")}</div>
-                            </div>
-                            ${renderHeatmapLegend()}
-                        </div>
-                        ${renderHeatmap(overview.heatmap)}
-                    </section>
-                `);
+                return wrapHomepageModule(id, renderHeatmapCard(overview));
             case "distribution":
                 return wrapHomepageModule(id, `
                     <section class="tm-homepage-card">
@@ -6344,18 +7019,29 @@
                         ${renderTaskList(overview.recentDone, __tmT("homepage.noCompletionRecordsInTheCurrentScopeYet"), "done")}
                     </section>
                 `);
-            case "risk":
+            case "risk": {
+                const dragTab = runtime.riskTab === "drag";
+                const riskCount = Array.isArray(overview.riskList) ? overview.riskList.length : 0;
+                const dragCount = Math.max(0, Math.round(toNumber(overview?.procrastination?.draggingCount, 0)));
                 return wrapHomepageModule(id, `
                     <section class="tm-homepage-card">
                         <div class="tm-homepage-card-head">
                             <div>
                                 <div class="tm-homepage-card-title">${__tmT("homepage.riskAlerts")}</div>
-                                <div class="tm-homepage-card-desc">${__tmT("homepage.overdueFirstThenItemsDueWithinDays")}</div>
+                                <div class="tm-homepage-card-desc">${dragTab ? __tmT("homepage.riskDragDesc") : __tmT("homepage.overdueFirstThenItemsDueWithinDays")}</div>
+                            </div>
+                            <div class="tm-homepage-range-switch" role="tablist" aria-label="${esc(__tmT("homepage.riskAlerts"))}">
+                                <button type="button" class="tm-homepage-range-btn ${dragTab ? "" : "is-active"}" data-tm-home-risk-tab="due" aria-selected="${dragTab ? "false" : "true"}">${__tmT("homepage.riskTabDue", { count: riskCount })}</button>
+                                <button type="button" class="tm-homepage-range-btn ${dragTab ? "is-active" : ""}" data-tm-home-risk-tab="drag" aria-selected="${dragTab ? "true" : "false"}">${__tmT("homepage.riskTabDrag", { count: dragCount })}</button>
                             </div>
                         </div>
-                        ${renderTaskList(overview.riskList, __tmT("homepage.noRiskTasksNeedAttentionRightNow"), "risk")}
+                        ${dragTab
+                            ? renderTaskList(overview.dragList, __tmT("homepage.riskDragEmpty"), "drag")
+                            : renderTaskList(overview.riskList, __tmT("homepage.noRiskTasksNeedAttentionRightNow"), "risk")}
+                        ${(dragTab ? overview.dragList : overview.riskList)?.length ? `<div class="tm-homepage-card-desc tm-homepage-risk-hint">${__tmT("homepage.riskMenuHint")}</div>` : ""}
                     </section>
                 `);
+            }
             default:
                 return "";
         }
@@ -6400,23 +7086,24 @@
         return true;
     }
 
-    function doRenderRangeOnly() {
-        if (!(runtime.root instanceof HTMLElement)) return false;
-        const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
-        runtime.profile = resolveProfile(ctx);
-        runtime.root.dataset.tmHomepageProfile = runtime.profile;
-        const overview = buildOverview(ctx);
-        const subtitleEl = runtime.root.querySelector("[data-tm-home-subtitle]");
-        if (subtitleEl instanceof HTMLElement) subtitleEl.textContent = String(overview.subtitle || "");
-        const trendSlot = runtime.root.querySelector("[data-tm-home-trend-slot]");
-        if (trendSlot instanceof HTMLElement) {
-            trendSlot.innerHTML = renderTrendCard(ctx, runtime.profile, overview, getHomepageTrendLayout());
-            bindTrendResizeObserver(overview.trend);
-            updateFocusSlot();
-            ensureFocusStatsLoaded(ctx);
-            return true;
+    function doRenderRangeOnly(chart, control) {
+        const card = control.closest(".tm-homepage-card");
+        const module = card.parentElement;
+        const hadFocus = document.activeElement === control;
+        const ctx = runtime.ctx || {};
+        const todayKey = normalizeDateKey(ctx.todayKey) || formatDateKey(new Date());
+        const activity = buildChartActivity(flattenTasks(ctx.tasks || []), todayKey);
+        const range = resolveChartRange(getHomepageSettingsData()[`${chart}Range`], todayKey);
+        if (chart === "trend") {
+            const trend = buildTrend(activity, range);
+            card.outerHTML = renderTrendCard(ctx, runtime.profile, { trend, chartYears: activity.years }, getHomepageTrendLayout());
+            bindTrendResizeObserver(trend);
+        } else {
+            const heatmap = buildHeatmap(activity.done, range, runtime.profile);
+            card.outerHTML = renderHeatmapCard({ heatmap, chartYears: activity.years });
+            scheduleHomepageHeatmapLayoutSync();
         }
-        return doRender();
+        if (hadFocus) module.querySelector("[data-tm-home-chart-range]")?.focus({ preventScroll: true });
     }
 
     function scheduleSettledRender() {
@@ -6525,6 +7212,18 @@
 
     function bindInteractions() {
         if (!(runtime.root instanceof HTMLElement)) return;
+        if (runtime.chartRangeChangeHandler) runtime.root.removeEventListener("change", runtime.chartRangeChangeHandler);
+        runtime.chartRangeChangeHandler = (event) => {
+            const control = event.target;
+            if (!(control instanceof HTMLSelectElement)) return;
+            const chart = control.dataset.tmHomeChartRange;
+            if ((chart !== "trend" && chart !== "heatmap") || control.selectedIndex < 0) return;
+            const key = `${chart}Range`;
+            if (getHomepageSettingsData()[key] === control.value) return;
+            saveHomepageSettings({ [key]: control.value });
+            doRenderRangeOnly(chart, control);
+        };
+        runtime.root.addEventListener("change", runtime.chartRangeChangeHandler);
         if (runtime.projectContextMenuHandler) {
             try { runtime.root.removeEventListener("contextmenu", runtime.projectContextMenuHandler); } catch (e) {}
         }
@@ -6577,7 +7276,7 @@
                 runtime.homepageSettingsOpen = false;
                 updateHomepageSettingsSlot();
             }
-            const target = source ? source.closest("[data-tm-home-range],[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-view],[data-tm-home-focus-distribution-range],[data-tm-home-focus-distribution-item],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset],[data-tm-home-module-collapse],[data-tm-home-project-doc],[data-tm-home-project-dates]") : null;
+            const target = source ? source.closest("[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-view],[data-tm-home-focus-distribution-range],[data-tm-home-focus-distribution-item],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset],[data-tm-home-module-collapse],[data-tm-home-risk-tab],[data-tm-home-project-doc],[data-tm-home-project-dates]") : null;
             if (!(target instanceof Element)) return;
             const focusTaskPopoverClose = String(target.getAttribute("data-tm-home-focus-task-popover-close") || "").trim();
             if (focusTaskPopoverClose) {
@@ -6626,12 +7325,12 @@
                 doRender();
                 return;
             }
-            const nextRange = String(target.getAttribute("data-tm-home-range") || "").trim();
-            if (nextRange) {
-                const days = Math.max(7, Math.min(90, Number(nextRange) || 30));
-                if (days !== runtime.rangeDays) {
-                    runtime.rangeDays = days;
-                    doRenderRangeOnly();
+            const nextRiskTab = String(target.getAttribute("data-tm-home-risk-tab") || "").trim();
+            if (nextRiskTab) {
+                const tab = nextRiskTab === "drag" ? "drag" : "due";
+                if (tab !== runtime.riskTab) {
+                    runtime.riskTab = tab;
+                    doRender();
                 }
                 return;
             }
@@ -6785,6 +7484,16 @@
         runtime.root.addEventListener("click", runtime.clickHandler);
         runtime.projectContextMenuHandler = (event) => {
             const source = event?.target instanceof Element ? event.target : null;
+            // Risk-alert rows: hand off to the plugin's existing task context menu (right click / Android long press).
+            const taskRow = source?.closest?.("[data-tm-home-task-menu]");
+            if (taskRow instanceof Element) {
+                const taskId = String(taskRow.getAttribute("data-tm-home-task-menu") || "").trim();
+                if (taskId && typeof runtime.ctx?.onTaskContextMenu === "function") {
+                    try { event.preventDefault?.(); } catch (e) {}
+                    runtime.ctx.onTaskContextMenu(event, taskId);
+                }
+                return;
+            }
             const card = source?.closest?.(".tm-home-project-card[data-tm-home-project-kind][data-tm-home-project-id]");
             if (!(card instanceof Element)) return;
             if (runtime.projectLongPressSuppressClick?.card === card
@@ -6977,6 +7686,10 @@
             try { runtime.root.removeEventListener("pointerleave", runtime.projectPointerUpHandler); } catch (e) {}
         }
         runtime.clickHandler = null;
+        if (runtime.root instanceof HTMLElement && runtime.chartRangeChangeHandler) {
+            runtime.root.removeEventListener("change", runtime.chartRangeChangeHandler);
+        }
+        runtime.chartRangeChangeHandler = null;
         runtime.projectContextMenuHandler = null;
         runtime.projectPointerDownHandler = null;
         runtime.projectPointerMoveHandler = null;

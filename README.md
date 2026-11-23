@@ -6,13 +6,25 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.5
+
+- **Homepage and procrastination scores**
+  - Upgrade the score to account for delay duration, overdue share, repeated rescheduling, and tasks added versus completed. Tabs, project progress, and the completion summary share the same scoring, with breakdowns available on hover.
+  - The completion summary adds today's planned count and an **Action status** quadrant showing progress and backlog for the current scope and individual projects.
+  - Risk alerts switch between **Overdue / soon** and **Dragging**. Right-click a task to change its date, complete it, or cancel it.
+  - Completion trends add an **Added** comparison line. Trends and heatmaps have separate, remembered day, month, and calendar-year filters; trends switch between daily and monthly totals to match the range.
+  - In **Settings → Rules → Procrastination score**, choose a 7 / 14 / 30-day statistics window and a grace period for tasks without due dates, or exclude those tasks.
+  - Improve focus statistics, summary, and chart layouts in the Dock and narrow windows. Changing a range refreshes only its chart.
+- **Board sets:** add multi-select mode for bulk actions.
+- **Mobile:** fix the date picker closing immediately after opening when quickly creating a task on Android.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.4
 
 - **Task creation:** fix navigation to the task's document immediately after creation.
 - **Task details and reminders:** due date edits in task details now update reminders that follow the task's due date right away.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.3
 

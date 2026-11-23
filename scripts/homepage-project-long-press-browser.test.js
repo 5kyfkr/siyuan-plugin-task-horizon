@@ -40,6 +40,13 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
             const doc = { id: 'demo-doc', name: '演示项目', total: 2, done: 1, progress: 50 };
             window.__mountProjects = (heading = false) => __tmHomepage.mount(document.getElementById('homepage'), {
                 todayKey: '2026-10-25', isMobileDevice: true, animateOnMount: false, tasks: [],
+                procrastinationMetrics: {
+                    draggingCount: 2,
+                    topDragging: [
+                        { id: 'risk-oldest', title: '???????', age: 45, days: 30, overdue: false },
+                        { id: 'risk-next', title: '???????', age: 32, days: 17, overdue: false },
+                    ],
+                },
                 projects: heading
                     ? { scope: 'doc', doc, h2Cards: [{ h2Id: 'demo-heading', name: '演示阶段', total: 2, done: 1, progress: 50 }] }
                     : { scope: 'group', sections: [{ label: '演示分组', cards: [doc], agg: { total: 2, done: 1, pct: 50 } }] },
@@ -66,6 +73,11 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         };
         // Let the initial settings/resize render settle before starting a gesture.
         await page.waitForTimeout(300);
+        const dragTab = page.locator('[data-tm-home-risk-tab="drag"]');
+        await dragTab.click();
+        assert.equal(await dragTab.getAttribute('aria-selected'), 'true', 'the dragging tab responds to clicks');
+        assert.deepEqual(await page.locator('[data-tm-home-task-menu]').evaluateAll(nodes => nodes.map(node => node.dataset.tmHomeOpenTask)),
+            ['risk-oldest', 'risk-next'], 'the dragging tab shows its longest-idle tasks in order');
         await card.tap();
         assert.deepEqual(await page.evaluate(() => __switches), ['demo-doc'], 'a short tap still opens the document');
         await card.locator('[data-tm-home-project-dates]').tap();

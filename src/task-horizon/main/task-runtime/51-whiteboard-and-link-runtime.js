@@ -11085,6 +11085,25 @@ return false;
         render();
     };
 
+    const __tmApplyProcrastinationSetting = async function(key, value, allowed, fallback) {
+        const days = Math.round(Number(value));
+        SettingsStore.data[key] = allowed.includes(days) ? days : fallback;
+        await SettingsStore.save();
+        if (state.settingsModal) showSettings();
+        render();
+        if (state.homepageOpen) {
+            try { __tmScheduleHomepageRefresh('procrastination-settings'); } catch (e) {}
+        }
+    };
+
+    window.updateProcrastinationWindowDays = function(value) {
+        return __tmApplyProcrastinationSetting('procrastinationWindowDays', value, [7, 14, 30], 30);
+    };
+
+    window.updateProcrastinationNoDueProtectDays = function(value) {
+        return __tmApplyProcrastinationSetting('procrastinationNoDueProtectDays', value, [0, 3, 7, 14, 30], 7);
+    };
+
     window.updateDocTabsArchiveButtonPosition = async function(value) {
         SettingsStore.data.docTabsArchiveButtonPosition = String(value || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
         await SettingsStore.save();

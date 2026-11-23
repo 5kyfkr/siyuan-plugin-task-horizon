@@ -84,7 +84,7 @@ assert.ok(calendarSyncStart >= 0 && calendarSyncEnd > calendarSyncStart, 'focus 
 assert.match(source.slice(calendarSyncStart, calendarSyncEnd), /focusStatisticsCoverMonth\(ctx, stats, month\)[\s\S]*buildFocusCalendarKey\(ctx, month\.key\)/,
     'the initial calendar must reuse homepage statistics when their range covers the visible month');
 const renderStart = source.indexOf('    function doRender()');
-const renderEnd = source.indexOf('    function doRenderRangeOnly()', renderStart);
+const renderEnd = source.indexOf('    function doRenderRangeOnly(', renderStart);
 assert.doesNotMatch(source.slice(renderStart, renderEnd), /ensureFocusCalendarLoaded/,
     'homepage initial render must not start a second calendar statistics query');
 assert.doesNotMatch(source, /__dockTomato\?\.history\?\.loadRange/, 'homepage must not load raw Tomato history');
@@ -157,5 +157,9 @@ assert.match(source, /if \(payload\?\.stats\) writeFocusCalendarCache\(key, payl
     'month query completion must update only the calendar surface');
 assert.match(source, /data-tm-home-focus-calendar-month[\s\S]*ensureFocusCalendarLoaded\(ctx, nextMonth\)[\s\S]*updateFocusCalendarSlot/,
     'month navigation must avoid replacing the complete focus panel');
+assert.match(source, /\.tm-homepage--desktop \.tm-homepage-card--focus:not\(\.is-narrow\) \.tm-homepage-focus-panel \{[^}]*min-height:\s*0;/,
+    'wide desktop focus panels must use the calendar content height as their shared row height');
+assert.match(source, /\.tm-homepage--desktop \.tm-homepage-card--focus:not\(\.is-narrow\) \.tm-homepage-focus-recent \.tm-homepage-focus-list \{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/,
+    'daily focus tasks must scroll inside the calendar-aligned panel');
 
 console.log('homepage focus statistics contract tests passed');

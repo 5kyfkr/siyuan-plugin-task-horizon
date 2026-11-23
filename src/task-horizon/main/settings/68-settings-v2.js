@@ -25,14 +25,14 @@
         calendar: [['c-cal', __tmT("calendar.calendar")], ['c-content', __tmT("settings.scheduleDisplay")], ['c-remind', __tmT("settings.remindersNotifications")], ['c-ics', __tmT("settings.icsSubscription")], ['c-caldav', __tmT("caldav.title")], ['c-focus', __tmT("settings.focusIntegrations")]],
         appearance: [['l-density', __tmT("settings.fontSizeDensity")], ['l-icon', __tmT("settings.iconsCheckboxes")], ['l-color', __tmT("settings.colors")], ['l-top', __tmT("settings.topBarControls")]],
         ai: [['a-mode', __tmT("settings.workflow")], ['a-agent', __tmT("settings.agent")], ['a-legacy', __tmT("settings.legacyAccess")], ['a-policy', __tmT("kernel.schedulingRules")]],
-        algo: [['r-rules', __tmT("settings.filteringSorting")], ['r-priority', __tmT("task.priorityScore")], ['r-quadrant', __tmT("task.quadrants")]],
+        algo: [['r-rules', __tmT("settings.filteringSorting")], ['r-priority', __tmT("task.priorityScore")], ['r-procrastination', __tmT("homepage.procrastinationScore")], ['r-quadrant', __tmT("task.quadrants")]],
         about: [['d-io', __tmT("settings.importExport")], ['d-sync', __tmT("settings.syncDevices")], ['d-about', __tmT("settings.versionHelp")]],
         benefits: [],
     };
     const __tmSettingsV2Sources = {
         docs: ['docs', 'main', 'appearance'], view: ['main', 'appearance'],
         appearance: ['main', 'appearance'], calendar: ['calendar', 'main'], ai: ['ai'],
-        algo: ['rules', 'priority', 'quadrant'], about: ['about', 'docs', 'main', 'appearance'], benefits: ['benefits'],
+        algo: ['rules', 'priority', 'procrastination', 'quadrant'], about: ['about', 'docs', 'main', 'appearance'], benefits: ['benefits'],
     };
     const __tmSettingsV3GroupNames = {
         't-src:docs': __tmT("settings.documentGroupsSources"), 't-src:tabs': __tmT("settings.tabsArchiveEntry"), 't-src:search': __tmT("settings.scanScope"),
@@ -86,7 +86,7 @@
         } else if (tab === 'docs') sub = section === 'import' ? 'd-io' : 't-src';
         else if (tab === 'calendar') sub = ({ 'calendar-content': 'c-content', 'calendar-reminders': 'c-remind', 'calendar-subscription': 'c-ics', 'calendar-subscription-scope': 'c-ics', 'calendar-caldav': 'c-caldav' })[section] || 'c-cal';
         else if (tab === 'ai' || tab === 'scheduled') sub = ({ 'ai-agent': 'a-agent', 'ai-policy': 'a-policy', 'ai-connection': 'a-legacy' })[section] || 'a-mode';
-        else if (['rules', 'rule_editor', 'priority', 'quadrant'].includes(tab)) sub = 'r-' + (tab === 'rule_editor' ? 'rules' : tab);
+        else if (['rules', 'rule_editor', 'priority', 'procrastination', 'quadrant'].includes(tab)) sub = 'r-' + (tab === 'rule_editor' ? 'rules' : tab);
         else if (tab === 'about') sub = section === 'backup' ? 'd-io' : section === 'version' ? 'd-about' : 'd-sync';
         const page = Object.keys(TM_SETTINGS_V3_SUBPAGES).find(id => TM_SETTINGS_V3_SUBPAGES[id].some(item => item[0] === sub)) || (tab === 'benefits' ? 'benefits' : 'docs');
         return { page, sub: sub || '' };

@@ -75,9 +75,10 @@ vm.runInContext([
 ].join('\n'), context);
 const outsideHandlersSource = segment(detailSource, 'const isTimeHubInside = (ev) => {', "on(document, 'keydown'");
 
-function event(type, target, clientX = 150, clientY = 30) {
+function event(type, target, clientX = 150, clientY = 30, extra = {}) {
     return {
-        type, target, clientX, clientY, detail: type === 'click' ? 1 : 0,
+        type, target, clientX, clientY, detail: type === 'click' ? 1 : 0, isTrusted: true,
+        ...extra,
         composedPath() {
             const nodes = [];
             for (let node = target; node; node = node.parentElement) nodes.push(node);
@@ -87,7 +88,7 @@ function event(type, target, clientX = 150, clientY = 30) {
     };
 }
 
-async function openFromPointer(attrKey, target = editor) {
+async function openFromPointer(attrKey, target = editor, mobileQuickAdd = false) {
     chip.dataset.inlineAttr = attrKey;
     context.openingEvent = event('pointerdown', target);
     const resolved = vm.runInContext('__tmQBResolveInlineMetaPointerTarget(openingEvent)', context);
@@ -98,12 +99,15 @@ async function openFromPointer(attrKey, target = editor) {
     assert.equal(opened.trigger, chip);
     assert.equal(opened.options.activeField, attrKey === 'custom-start-date' ? 'startDate' : 'completionTime');
     const handlers = new Map();
+    const syntheticClock = { now: 1000 };
     const dismissalContext = vm.createContext({
         Node: Element, Element, popover, trigger: opened.trigger, opts: opened.options, busy: false, externalClose: null,
+        Date: { now: () => syntheticClock.now }, mobileQuickAdd,
         window: {}, on: (target, type, handler) => handlers.set(type, handler),
         __tmCloseStandaloneTaskTimeHub: (reason) => closeReasons.push(reason),
     });
     vm.runInContext(outsideHandlersSource, dismissalContext);
+    handlers.syntheticClock = syntheticClock;
     return handlers;
 }
 
@@ -163,6 +167,19 @@ async function main() {
         delayedHandlers.get('pointerdown')(event('pointerdown', outside));
         assert.deepEqual(closeReasons, ['outside'], 'opening after the initial click must not swallow the next outside gesture');
     }
+
+    const quickAddHandlers = await openFromPointer('custom-completion-time', editor, true);
+    closeReasons.length = 0;
+    quickAddHandlers.get('click')(event('click', outside, 0, 0, { detail: 0, isTrusted: false }));
+    assert.deepEqual(closeReasons, [], 'the Android synthetic click immediately after opening must be ignored for mobile quick add');
+    quickAddHandlers.get('pointerdown')(event('pointerdown', outside));
+    assert.deepEqual(closeReasons, ['outside'], 'a real outside touch must still close mobile quick add immediately');
+
+    const expiredQuickAddHandlers = await openFromPointer('custom-completion-time', editor, true);
+    expiredQuickAddHandlers.syntheticClock.now += 401;
+    closeReasons.length = 0;
+    expiredQuickAddHandlers.get('click')(event('click', outside, 0, 0, { detail: 0, isTrusted: false }));
+    assert.deepEqual(closeReasons, ['outside-click'], 'synthetic outside clicks must dismiss after the opening grace period');
 
     console.log('quickbar time hub interaction tests passed');
 }

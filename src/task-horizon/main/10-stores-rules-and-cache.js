@@ -8903,6 +8903,8 @@
             taskCheckboxPriorityColorEnabled: true,
             docTabsAutoHideEnabled: true,
             docTabProcrastinationTintEnabled: true,
+            procrastinationWindowDays: 30,
+            procrastinationNoDueProtectDays: 30,
             enableQuickbar: true,
             taskDoneDelightEnabled: true,
             recurringTaskKeepNativeDoneUntilNextOccurrence: false,
@@ -9614,6 +9616,8 @@
                                 if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
                                 if (typeof cloudData.docTabsManualArchiveOnly === 'boolean') this.data.docTabsManualArchiveOnly = cloudData.docTabsManualArchiveOnly;
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
+                                if (Number.isFinite(Number(cloudData.procrastinationWindowDays))) this.data.procrastinationWindowDays = Number(cloudData.procrastinationWindowDays);
+                                if (Number.isFinite(Number(cloudData.procrastinationNoDueProtectDays))) this.data.procrastinationNoDueProtectDays = Number(cloudData.procrastinationNoDueProtectDays);
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
                                 if (typeof cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence === 'boolean') this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence;
@@ -10269,6 +10273,8 @@
             this.data.taskCheckboxPriorityColorEnabled = Storage.get('tm_task_checkbox_priority_color_enabled', this.data.taskCheckboxPriorityColorEnabled) !== false;
             this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
             this.data.docTabProcrastinationTintEnabled = Storage.get('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled) !== false;
+            this.data.procrastinationWindowDays = Number(Storage.get('tm_procrastination_window_days', this.data.procrastinationWindowDays));
+            this.data.procrastinationNoDueProtectDays = Number(Storage.get('tm_procrastination_no_due_protect_days', this.data.procrastinationNoDueProtectDays));
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
             this.data.docTitleGroupFocusEnabled = Storage.get('tm_doc_title_group_focus_enabled', this.data.docTitleGroupFocusEnabled) !== false;
             this.data.docTitleEmbeddedTaskFocusEnabled = !!Storage.get('tm_doc_title_embedded_task_focus_enabled', this.data.docTitleEmbeddedTaskFocusEnabled);
@@ -10902,6 +10908,8 @@
             try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
             Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
             Storage.set('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled !== false);
+            Storage.set('tm_procrastination_window_days', this.data.procrastinationWindowDays);
+            Storage.set('tm_procrastination_no_due_protect_days', this.data.procrastinationNoDueProtectDays);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
             Storage.set('tm_doc_title_group_focus_enabled', this.data.docTitleGroupFocusEnabled !== false);
             Storage.set('tm_doc_title_embedded_task_focus_enabled', !!this.data.docTitleEmbeddedTaskFocusEnabled);
@@ -11319,6 +11327,12 @@
             this.data.docTabsArchiveButtonPosition = String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
             this.data.docTabsManualArchiveOnly = !!this.data.docTabsManualArchiveOnly;
             this.data.docTabProcrastinationTintEnabled = this.data.docTabProcrastinationTintEnabled !== false;
+            {
+                const windowDays = Math.round(Number(this.data.procrastinationWindowDays));
+                this.data.procrastinationWindowDays = [7, 14, 30].includes(windowDays) ? windowDays : 30;
+                const protectDays = Math.round(Number(this.data.procrastinationNoDueProtectDays));
+                this.data.procrastinationNoDueProtectDays = [0, 3, 7, 14, 30].includes(protectDays) ? protectDays : 30;
+            }
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
             {
                 const validCalendarHourSlotHeightModes = new Set(['normal', 'high', 'higher', 'ultra']);

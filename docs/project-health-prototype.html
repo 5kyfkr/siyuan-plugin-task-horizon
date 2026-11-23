@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>项目健康度 · 原型</title>
+<style>
+/* ============================================================
+   原型说明：项目健康度（拖延值 / 行动分 / 每日分 / 项目评分）
+   - 数据：模拟数据，今天固定为 2026-11-22，所有日期以「距今天数」表示
+   - 计算全部为只读推导，不新增存储；右侧设置实时重算
+   - 展示位置：① 文档页签色点  ② 首页「项目健康度」模块  ③ 项目详情
+   ============================================================ */
+:root {
+    --tm-home-bg: #f4f5f9;
+    --tm-home-surface: #ffffff;
+    --tm-home-surface-soft: #f7f8fb;
+    --tm-home-text: #1f2329;
+    --tm-home-text-muted: #8a8f99;
+    --tm-home-border: #e5e7ee;
+    --tm-home-accent: #5b6cff;
+    --tm-home-accent-soft: rgba(91, 108, 255, .1);
+    --tm-home-success: #34a853;
+    --tm-home-warning: #f9ab00;
+    --tm-home-danger: #ef4444;
+    --tm-home-idle: #a0a6b1;
+    --tm-home-card-radius: 12px;
+    --tm-home-gap: 16px;
+    --tm-home-shadow: 0 8px 20px rgba(15, 23, 42, .045);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #e9ebf2; color: var(--tm-home-text);
+    font-size: 13px; line-height: 1.5; padding: 24px 16px 64px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; }
+.proto-note {
+    background: #fffbe8; border: 1px solid #f3e2a4; border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 16px; color: #6b5a1e; font-size: 12.5px;
+}
+.proto-note b { color: #4a3d0e; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--tm-home-gap); align-items: start; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+
+/* ---------- 插件外壳 ---------- */
+.shell { background: var(--tm-home-bg); border-radius: 14px; border: 1px solid var(--tm-home-border); overflow: hidden; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--tm-home-surface); border-bottom: 1px solid var(--tm-home-border); }
+.toolbar .title { font-weight: 600; font-size: 14px; margin-right: 8px; }
+.toolbar .grow { flex: 1; }
+.toolbar .chip { font-size: 12px; color: var(--tm-home-text-muted); padding: 2px 8px; border-radius: 6px; background: var(--tm-home-surface-soft); }
+
+.tabs { display: flex; gap: 4px; padding: 8px 14px 0; background: var(--tm-home-surface); border-bottom: 1px solid var(--tm-home-border); overflow: visible; flex-wrap: wrap; }
+.tab {
+    position: relative; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    padding: 7px 12px 9px; border: 0; background: transparent; cursor: pointer;
+    font: inherit; color: var(--tm-home-text-muted); border-radius: 8px 8px 0 0; min-height: 36px;
+}
+.tab:hover { background: var(--tm-home-surface-soft); color: var(--tm-home-text); }
+.tab.active { color: var(--tm-home-text); font-weight: 600; }
+.tab.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--tm-home-accent); }
+.tab .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.tab .badge { font-size: 11px; line-height: 16px; min-width: 16px; padding: 0 5px; border-radius: 8px; color: #fff; text-align: center; font-weight: 600; }
+.tab .tip {
+    display: none; position: absolute; top: calc(100% + 4px); left: 8px; z-index: 5;
+    background: #1f2329; color: #fff; font-weight: 400; font-size: 12px; padding: 6px 9px; border-radius: 6px;
+    white-space: nowrap; box-shadow: var(--tm-home-shadow);
+}
+.tab:hover .tip, .tab:focus-visible .tip { display: block; }
+
+.page { padding: var(--tm-home-gap); display: grid; gap: var(--tm-home-gap); }
+.card { background: var(--tm-home-surface); border: 1px solid var(--tm-home-border); border-radius: var(--tm-home-card-radius); box-shadow: var(--tm-home-shadow); padding: 16px; }
+.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.card-head h3 { font-size: 14px; font-weight: 600; }
+.card-head .sub { color: var(--tm-home-text-muted); font-size: 12px; }
+.card-head .grow { flex: 1; }
+.seg { display: inline-flex; background: var(--tm-home-surface-soft); border-radius: 7px; padding: 2px; border: 1px solid var(--tm-home-border); }
+.seg button { border: 0; background: transparent; font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 5px; cursor: pointer; color: var(--tm-home-text-muted); }
+.seg button.on { background: var(--tm-home-surface); color: var(--tm-home-text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* ---------- 总览 KPI ---------- */
+.overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) 190px; gap: 12px; }
+@media (max-width: 1100px) { .overview { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--tm-home-surface-soft); border-radius: 10px; padding: 12px; min-width: 0; }
+.kpi .lab { color: var(--tm-home-text-muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.kpi .val { font-size: 24px; font-weight: 650; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi .val small { font-size: 12px; font-weight: 500; color: var(--tm-home-text-muted); margin-left: 3px; }
+.kpi .hint { font-size: 11.5px; color: var(--tm-home-text-muted); margin-top: 2px; }
+.q { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--tm-home-border); font-size: 10px; display: inline-grid; place-items: center; cursor: help; color: var(--tm-home-text-muted); }
+.up { color: var(--tm-home-danger); } .down { color: var(--tm-home-success); }
+
+.week { display: flex; gap: 4px; align-items: flex-end; height: 34px; margin-top: 6px; }
+.week .b { flex: 1; border-radius: 3px 3px 1px 1px; background: var(--tm-home-accent); opacity: .55; min-height: 2px; }
+.week .b.today { opacity: 1; }
+.week .b.none { background: var(--tm-home-border); opacity: 1; height: 2px; }
+.weeklab { display: flex; gap: 4px; font-size: 10.5px; color: var(--tm-home-text-muted); }
+.weeklab span { flex: 1; text-align: center; }
+
+.style-q { background: var(--tm-home-surface-soft); border-radius: 10px; padding: 10px; }
+.style-q .lab { color: var(--tm-home-text-muted); font-size: 12px; margin-bottom: 4px; }
+.quad { position: relative; height: 92px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; font-size: 10.5px; color: var(--tm-home-text-muted); }
+.quad div { background: var(--tm-home-surface); border-radius: 4px; padding: 3px 5px; }
+.quad div.hit { background: var(--tm-home-accent-soft); color: var(--tm-home-accent); font-weight: 600; }
+.quad .me { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--tm-home-accent); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--tm-home-accent); transform: translate(-50%, -50%); transition: left .3s, top .3s; }
+.axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--tm-home-text-muted); margin-top: 3px; }
+
+/* ---------- 项目列表 ---------- */
+.plist { display: grid; gap: 2px; }
+.prow {
+    display: grid; grid-template-columns: 14px minmax(120px, 1.4fr) 54px repeat(4, minmax(70px, 1fr)); align-items: center; gap: 10px;
+    padding: 9px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+}
+.prow:hover { background: var(--tm-home-surface-soft); }
+.prow.sel { background: var(--tm-home-accent-soft); border-color: rgba(91,108,255,.25); }
+.prow.headrow { cursor: default; font-size: 11.5px; color: var(--tm-home-text-muted); padding-top: 0; }
+.prow.headrow:hover { background: none; }
+.prow .pdot { width: 9px; height: 9px; border-radius: 50%; }
+.prow .name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prow .name em { font-style: normal; font-size: 11px; font-weight: 500; margin-left: 6px; padding: 1px 6px; border-radius: 5px; background: var(--tm-home-surface-soft); color: var(--tm-home-text-muted); }
+.score { font-weight: 650; font-variant-numeric: tabular-nums; font-size: 15px; }
+.metric { font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.metric .bar { height: 4px; border-radius: 2px; background: var(--tm-home-border); margin-top: 4px; overflow: hidden; }
+.metric .bar i { display: block; height: 100%; border-radius: 2px; }
+.metric small { color: var(--tm-home-text-muted); font-size: 11px; }
+
+/* ---------- 项目详情 ---------- */
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 1100px) { .detail-grid { grid-template-columns: 1fr; } }
+.breakdown { display: grid; gap: 8px; margin-bottom: 16px; }
+.bd { display: grid; grid-template-columns: 64px 1fr 36px; gap: 8px; align-items: center; font-size: 12px; }
+.bd .track { height: 8px; border-radius: 4px; background: var(--tm-home-surface-soft); overflow: hidden; border: 1px solid var(--tm-home-border); }
+.bd .track i { display: block; height: 100%; transition: width .3s; }
+.bd b { text-align: right; font-variant-numeric: tabular-nums; }
+.bd small { color: var(--tm-home-text-muted); }
+.sec-title { font-size: 12px; color: var(--tm-home-text-muted); display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+.sec-title .lg { display: inline-flex; gap: 4px; align-items: center; }
+.sec-title .lg i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+svg text { font-family: inherit; }
+.tank { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; background: var(--tm-home-surface-soft); border-radius: 10px; font-size: 12.5px; }
+.tank .num { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trow { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 6px; border-bottom: 1px dashed var(--tm-home-border); }
+.trow:last-child { border-bottom: 0; }
+.trow .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .why { font-size: 11.5px; color: var(--tm-home-text-muted); }
+.trow .d { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.trow .d small { font-weight: 400; color: var(--tm-home-text-muted); }
+.trow .acts { display: flex; gap: 4px; margin-top: 3px; justify-content: flex-end; }
+.trow .acts button { font: inherit; font-size: 11px; border: 1px solid var(--tm-home-border); background: var(--tm-home-surface); border-radius: 5px; padding: 1px 7px; cursor: pointer; color: var(--tm-home-text-muted); }
+.trow .acts button:hover { color: var(--tm-home-accent); border-color: var(--tm-home-accent); }
+.empty { color: var(--tm-home-text-muted); padding: 18px 0; text-align: center; font-size: 12.5px; }
+
+/* ---------- 设置面板 ---------- */
+.settings { position: sticky; top: 16px; }
+.settings .card { padding: 14px; }
+.field { margin-bottom: 14px; }
+.field .fl { display: flex; justify-content: space-between; font-size: 12px; font-weight: 550; margin-bottom: 5px; }
+.field .fl span { color: var(--tm-home-text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.field .desc { font-size: 11.5px; color: var(--tm-home-text-muted); margin-top: 4px; }
+.field input[type=range] { width: 100%; accent-color: var(--tm-home-accent); }
+.field select { width: 100%; font: inherit; font-size: 12.5px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--tm-home-border); background: var(--tm-home-surface); }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; cursor: pointer; }
+.check input { margin-top: 3px; accent-color: var(--tm-home-accent); }
+.settings h4 { font-size: 12px; color: var(--tm-home-text-muted); font-weight: 600; margin: 16px 0 8px; }
+.formula { font-size: 11.5px; color: var(--tm-home-text-muted); background: var(--tm-home-surface-soft); border-radius: 8px; padding: 10px; line-height: 1.7; }
+.formula code { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--tm-home-text); }
+.formula b { color: var(--tm-home-text); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="proto-note">
+    <b>项目健康度原型</b> · 模拟数据，今天固定为 2026-11-22。所有指标均从现有任务数据只读推导（创建时间取块 ID 时间戳，完成时间、截止/开始日期取现有字段），不新增存储。<br>
+    展示三处：<b>① 文档页签色点/角标</b>（悬停看明细）、<b>② 首页「项目健康度」模块</b>、<b>③ 点击项目后的详情</b>（拖延任务可直接改期/放弃，模拟写入后实时重算）。右侧设置用于调参。
+</div>
+
+<div class="layout">
+<main class="shell">
+    <div class="toolbar">
+        <span class="title">任务管理器</span>
+        <span class="chip">分组：全部项目</span>
+        <span class="grow"></span>
+        <span class="chip">主页</span>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="文档页签"></nav>
+
+    <div class="page">
+        <section class="card">
+            <div class="card-head">
+                <h3>项目健康度</h3>
+                <span class="sub" id="windowSub"></span>
+            </div>
+            <div class="overview" id="overview"></div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <h3>项目</h3>
+                <span class="sub">点击查看详情</span>
+                <span class="grow"></span>
+                <div class="seg" id="sortSeg">
+                    <button data-sort="risk" class="on">风险优先</button>
+                    <button data-sort="name">按名称</button>
+                </div>
+            </div>
+            <div class="plist" id="plist"></div>
+        </section>
+
+        <section class="card" id="detail"></section>
+    </div>
+</main>
+
+<aside class="settings">
+    <div class="card">
+        <div class="card-head"><h3>健康度设置</h3></div>
+
+        <div class="field">
+            <div class="fl">拖延起始保护</div>
+            <select id="protect">
+                <option value="3">创建 3 天后</option>
+                <option value="7" selected>创建 1 周后</option>
+                <option value="14">创建 2 周后</option>
+                <option value="30">创建 1 个月后</option>
+            </select>
+            <div class="desc">无截止日期的任务，超过保护期仍未完成才开始累计拖延。</div>
+        </div>
+
+        <div class="field">
+            <label class="check"><input type="checkbox" id="countNoDue" checked> 无截止日期任务计入拖延</label>
+        </div>
+
+        <div class="field">
+            <div class="fl">逾期权重 <span id="overdueMulVal"></span></div>
+            <input type="range" id="overdueMul" min="1" max="3" step="0.5" value="2">
+            <div class="desc">逾期 1 天折算为几个「拖延天」，逾期比闲置更严重。</div>
+        </div>
+
+        <div class="field">
+            <div class="fl">统计窗口</div>
+            <div class="seg" id="winSeg">
+                <button data-w="7">7 天</button>
+                <button data-w="14" class="on">14 天</button>
+                <button data-w="30">30 天</button>
+            </div>
+            <div class="desc">行动比 = 窗口内完成数 ÷ 新建数。</div>
+        </div>
+
+        <h4>评分权重</h4>
+        <div class="field"><div class="fl">拖延 <span id="wDragVal"></span></div><input type="range" id="wDrag" min="0" max="5" step="1" value="3"></div>
+        <div class="field"><div class="fl">行动 <span id="wActVal"></span></div><input type="range" id="wAct" min="0" max="5" step="1" value="2"></div>
+        <div class="field"><div class="fl">逾期 <span id="wOverVal"></span></div><input type="range" id="wOver" min="0" max="5" step="1" value="2"></div>
+
+        <h4>页签标识</h4>
+        <div class="field">
+            <select id="tabMode">
+                <option value="dot">色点（仅关注/风险）</option>
+                <option value="dotAll">色点（全部）</option>
+                <option value="badge">逾期数角标</option>
+                <option value="off">关闭</option>
+            </select>
+        </div>
+
+        <h4>算法</h4>
+        <div class="formula" id="formula"></div>
+    </div>
+</aside>
+</div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ---------------- 模拟数据 ----------------
+// 日期均为「距今天数」：0 = 今天，-3 = 3 天前，2 = 2 天后
+let seed = 20261122;
+const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+const ri = (a, b) => Math.floor(a + rnd() * (b - a + 1));
+const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+
+const PROJECTS = [
+    { id: 'p1', name: '产品发布 v3.6', n: 46, spread: 40, recentBias: 0.55, doneP: 0.75, dueP: 0.8, slip: 0.15,
+      words: ['设置页迁移', '移动端适配', '日历拖拽', '回归测试', '发布说明', '性能采样', '修复逾期排序', 'i18n 补全', '图标替换', '导出格式'] },
+    { id: 'p2', name: '论文写作', n: 22, spread: 90, recentBias: 0, doneP: 0.3, dueP: 0.15, slip: 0.5, quietDays: 20,
+      words: ['文献综述', '实验设计', '第三章初稿', '数据清洗', '图表重绘', '致谢', '格式检查', '投稿信'] },
+    { id: 'p3', name: '家装', n: 28, spread: 60, recentBias: 0.3, doneP: 0.45, dueP: 0.85, slip: 0.7,
+      words: ['水电验收', '定橱柜', '买灯具', '联系保洁', '窗帘测量', '吊顶', '地板选色', '物业报备'] },
+    { id: 'p4', name: '读书笔记', n: 14, spread: 30, recentBias: 0.5, doneP: 0.8, dueP: 0.3, slip: 0.1,
+      words: ['整理摘录', '写书评', '复盘第 2 章', '卡片回顾', '下一本选书'] },
+    { id: 'p5', name: '收集箱', n: 38, spread: 120, recentBias: 0.4, doneP: 0.25, dueP: 0.05, slip: 0.3,
+      words: ['看看那个工具', '回复邮件', '整理下载文件夹', '研究一下', '买电池', '问问报价', '想法：周报模板'] },
+    { id: 'p6', name: '健身计划', n: 10, spread: 50, recentBias: 0.3, doneP: 0.2, dueP: 0, slip: 0, recurringAll: true,
+      words: ['晨跑', '力量训练', '拉伸', '体重记录'] },
+];
+
+const TASKS = [];
+PROJECTS.forEach((p) => {
+    for (let i = 0; i < p.n; i++) {
+        const recent = rnd() < p.recentBias;
+        let created = recent ? -ri(0, 13) : -ri(0, p.spread);
+        if (p.quietDays) created = Math.min(created, -p.quietDays - ri(0, 10));
+        const t = { id: p.id + '-' + i, proj: p.id, title: pick(p.words) + (rnd() < .5 ? '' : ' #' + ri(2, 9)),
+            created, due: null, start: null, done: null, abandoned: false, recurring: !!p.recurringAll };
+        if (rnd() < p.dueP) t.due = created + ri(2, rnd() < p.slip ? 18 : 35);
+        if (rnd() < 0.08 && !t.recurring) t.start = ri(1, 10);
+        if (rnd() < p.doneP && created < 0) {
+            const latest = p.quietDays ? -p.quietDays : 0;
+            const target = t.due !== null ? t.due + (rnd() < p.slip ? ri(1, 6) : -ri(0, 3)) : created + ri(0, -created);
+            if (target <= latest) t.done = Math.max(created, target); // 落在未来的视为未完成
+        }
+        if (t.done === null && rnd() < 0.05) t.abandoned = true;
+        TASKS.push(t);
+    }
+});
+
+// ---------------- 设置 ----------------
+const S = { protect: 7, countNoDue: true, overdueMul: 2, win: 14, wDrag: 3, wAct: 2, wOver: 2, tabMode: 'dot', sort: 'risk', sel: 'p3' };
+
+// ---------------- 计算 ----------------
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const isOpen = (t) => t.done === null && !t.abandoned;
+const dragIndex = (avg) => Math.round(100 * (1 - Math.exp(-avg / 15)));
+
+function taskDelay(t) {
+    if (t.start !== null && t.start > 0) return { days: 0 };                 // 未到开始日期
+    if (t.due !== null) {
+        if (t.due < 0) return { days: -t.due * S.overdueMul, reason: '逾期 ' + (-t.due) + ' 天', overdue: true };
+        return { days: 0 };
+    }
+    if (!S.countNoDue) return { days: 0 };
+    const age = -t.created;
+    if (age > S.protect) return { days: age - S.protect, reason: '无截止日期，已存在 ' + age + ' 天' };
+    return { days: 0 };
+}
+
+const backlogAt = (tasks, d) => tasks.filter((t) => !t.abandoned && t.created <= d && (t.done === null || t.done > d)).length;
+
+function computeProject(p) {
+    const tasks = TASKS.filter((t) => t.proj === p.id && !t.recurring);   // 循环任务不计分
+    const open = tasks.filter(isOpen);
+    const delays = open.map((t) => ({ t, ...taskDelay(t) }));
+    const overdue = delays.filter((x) => x.overdue).length;
+    const avgDelay = open.length ? delays.reduce((s, x) => s + x.days, 0) / open.length : 0;
+    const drag = dragIndex(avgDelay);
+
+    const from = -S.win + 1;
+    const createdW = tasks.filter((t) => t.created >= from).length;
+    const doneW = tasks.filter((t) => t.done !== null && t.done >= from).length;
+    let ratio = null;
+    if (createdW > 0) ratio = doneW / createdW;
+    else if (doneW > 0) ratio = 1.5;
+    const action = ratio === null ? null : Math.round(100 * Math.min(ratio, 1.5) / 1.5);
+
+    const overdueRate = open.length ? overdue / open.length : 0;
+    const stalled = open.length > 0 && createdW === 0 && doneW === 0;
+    const actionPart = action === null ? (stalled ? 0 : 50) : action;
+
+    let health = 100;
+    if (open.length) {
+        const parts = [[S.wDrag, 100 - drag], [S.wAct, actionPart], [S.wOver, 100 * (1 - overdueRate)]];
+        const wSum = parts.reduce((s, x) => s + x[0], 0) || 1;
+        health = Math.round(parts.reduce((s, x) => s + x[0] * x[1], 0) / wSum);
+    }
+    const level = !open.length ? 'clear' : health >= 75 ? 'good' : health >= 50 ? 'warn' : 'bad';
+
+    const flow = [];
+    for (let d = from; d <= 0; d++) {
+        flow.push({ d, created: tasks.filter((t) => t.created === d).length, done: tasks.filter((t) => t.done === d).length });
+    }
+    return { p, open: open.length, overdue, avgDelay, drag, createdW, doneW, ratio, action, actionPart,
+        overdueRate, stalled, health, level, flow,
+        backlogNow: backlogAt(tasks, 0), backlogThen: backlogAt(tasks, from - 1),
+        topDelays: delays.filter((x) => x.days > 0).sort((a, b) => b.days - a.days) };
+}
+
+function computeDaily() {
+    const out = [];
+    for (let d = -6; d <= 0; d++) {
+        const planned = TASKS.filter((t) => !t.abandoned && !t.recurring && (t.due === d || t.done === d));
+        const done = planned.filter((t) => t.done === d).length;
+        out.push({ d, planned: planned.length, done, rate: planned.length ? done / planned.length : null });
+    }
+    return out;
+}
+
+// ---------------- 渲染 ----------------
+const COLORS = { good: 'var(--tm-home-success)', warn: 'var(--tm-home-warning)', bad: 'var(--tm-home-danger)', clear: 'var(--tm-home-idle)' };
+const LABELS = { good: '健康', warn: '关注', bad: '风险', clear: '已清空' };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ratioText = (r) => r === null ? '—' : r.toFixed(2);
+const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+const dayLabel = (d) => d === 0 ? '今' : WEEK[new Date(2026, 10, 22 + d).getDay()];
+const dateText = (d) => { const dt = new Date(2026, 10, 22 + d); return (dt.getMonth() + 1) + '/' + dt.getDate(); };
+const signed = (n) => (n > 0 ? '+' : '') + n;
+
+let RESULTS = [];
+
+function renderTabs() {
+    $('tabs').innerHTML = RESULTS.map((r) => {
+        let mark = '';
+        if (S.tabMode === 'dot' && (r.level === 'warn' || r.level === 'bad')) mark = `<i class="dot" style="background:${COLORS[r.level]}"></i>`;
+        if (S.tabMode === 'dotAll') mark = `<i class="dot" style="background:${COLORS[r.level]}"></i>`;
+        if (S.tabMode === 'badge' && r.overdue > 0) mark = `<span class="badge" style="background:${COLORS[r.level === 'bad' ? 'bad' : 'warn']}">${r.overdue}</span>`;
+        const tip = r.p.recurringAll ? '仅循环任务，不参与评分'
+            : !r.open ? '没有未完成任务'
+            : `${LABELS[r.level]} ${r.health} 分 · 逾期 ${r.overdue} · 拖延指数 ${r.drag} · 行动比 ${ratioText(r.ratio)}${r.stalled ? ' · 已停滞' : ''}`;
+        return `<button class="tab${S.sel === r.p.id ? ' active' : ''}" data-id="${r.p.id}">${esc(r.p.name)}${mark}<span class="tip">${tip}</span></button>`;
+    }).join('');
+}
+
+function renderOverview() {
+    const scored = RESULTS.filter((r) => r.open > 0);
+    const totalOpen = scored.reduce((s, r) => s + r.open, 0);
+    const totalOver = scored.reduce((s, r) => s + r.overdue, 0);
+    const createdW = RESULTS.reduce((s, r) => s + r.createdW, 0);
+    const doneW = RESULTS.reduce((s, r) => s + r.doneW, 0);
+    const ratio = createdW ? doneW / createdW : null;
+    const avgDelay = totalOpen ? scored.reduce((s, r) => s + r.avgDelay * r.open, 0) / totalOpen : 0;
+    const drag = dragIndex(avgDelay);
+    const backNow = RESULTS.reduce((s, r) => s + r.backlogNow, 0);
+    const backThen = RESULTS.reduce((s, r) => s + r.backlogThen, 0);
+    const diff = backNow - backThen;
+    const risk = RESULTS.filter((r) => r.level === 'bad').length;
+    const warn = RESULTS.filter((r) => r.level === 'warn').length;
+
+    const daily = computeDaily();
+    const today = daily[daily.length - 1];
+    const weekBars = daily.map((x) => x.rate === null
+        ? `<i class="b none" title="${dateText(x.d)} 无计划"></i>`
+        : `<i class="b${x.d === 0 ? ' today' : ''}" style="height:${Math.max(6, x.rate * 100)}%" title="${dateText(x.d)} 完成 ${x.done}/${x.planned}"></i>`).join('');
+
+    // 做事风格：横轴行动比（0~2），纵轴拖延指数（上低下高）
+    const ax = ratio === null ? 0.5 : clamp(ratio / 2, 0.04, 0.96);
+    const ay = clamp(drag / 100, 0.08, 0.92);
+    const hiAct = ratio !== null && ratio >= 1;
+    const hiDrag = drag >= 40;
+    const quads = [['轻量维护', !hiAct && !hiDrag], ['稳步推进', hiAct && !hiDrag], ['积压中', !hiAct && hiDrag], ['边做边堆', hiAct && hiDrag]];
+
+    $('windowSub').textContent = `近 ${S.win} 天 · ${RESULTS.length} 个项目`;
+    $('overview').innerHTML = `
+        <div class="kpi">
+            <div class="lab">行动比 <span class="q" title="窗口内完成数 ÷ 新建数。大于 1 在消化积压，小于 1 在堆积。">?</span></div>
+            <div class="val">${ratioText(ratio)}<small>完成 ${doneW} / 新建 ${createdW}</small></div>
+            <div class="hint">积压 ${backThen} → ${backNow} <span class="${diff > 0 ? 'up' : 'down'}">${signed(diff)}</span></div>
+        </div>
+        <div class="kpi">
+            <div class="lab">拖延指数 <span class="q" title="未完成任务的平均拖延天数映射到 0–100。逾期按权重折算，无截止日期的任务过保护期后累计。">?</span></div>
+            <div class="val">${drag}<small>平均 ${avgDelay.toFixed(1)} 天</small></div>
+            <div class="hint">逾期 ${totalOver} 项 · 未完成 ${totalOpen} 项</div>
+        </div>
+        <div class="kpi">
+            <div class="lab">需要关注</div>
+            <div class="val"><span style="color:${risk ? 'var(--tm-home-danger)' : 'inherit'}">${risk}</span><small>风险</small> <span style="color:${warn ? 'var(--tm-home-warning)' : 'inherit'}">${warn}</span><small>关注</small></div>
+            <div class="hint">共 ${RESULTS.length} 个项目</div>
+        </div>
+        <div class="kpi">
+            <div class="lab">今日完成率 <span class="q" title="当天计划（截止日期为当天，或当天完成）中已完成的比例。下方为近 7 天。">?</span></div>
+            <div class="val">${today.rate === null ? '—' : Math.round(today.rate * 100) + '%'}<small>${today.done}/${today.planned}</small></div>
+            <div class="week">${weekBars}</div>
+            <div class="weeklab">${daily.map((x) => `<span>${dayLabel(x.d)}</span>`).join('')}</div>
+        </div>
+        <div class="style-q">
+            <div class="lab">做事风格</div>
+            <div class="quad">
+                ${quads.map(([n, hit]) => `<div class="${hit ? 'hit' : ''}">${n}</div>`).join('')}
+                <span class="me" style="left:${ax * 100}%;top:${ay * 100}%" title="行动比 ${ratioText(ratio)} · 拖延指数 ${drag}"></span>
+            </div>
+            <div class="axis"><span>← 行动少</span><span>↑ 拖延低</span><span>行动多 →</span></div>
+        </div>`;
+}
+
+function renderList() {
+    const rows = RESULTS.slice();
+    const rank = (r) => r.p.recurringAll ? 2 : r.open ? 0 : 1;
+    if (S.sort === 'risk') rows.sort((a, b) => rank(a) - rank(b) || a.health - b.health);
+    else rows.sort((a, b) => a.p.name.localeCompare(b.p.name, 'zh'));
+    const bar = (v, color) => `<div class="bar"><i style="width:${clamp(v, 0, 100)}%;background:${color}"></i></div>`;
+    $('plist').innerHTML = `
+        <div class="prow headrow"><span></span><span>项目</span><span>评分</span><span>逾期 / 未完成</span><span>拖延指数</span><span>行动比</span><span>积压变化</span></div>
+        ${rows.map((r) => {
+            const diff = r.backlogNow - r.backlogThen;
+            const tag = r.p.recurringAll ? '<em>循环任务不计分</em>' : r.stalled ? '<em>停滞</em>' : '';
+            const has = r.open > 0;
+            return `<div class="prow${S.sel === r.p.id ? ' sel' : ''}" data-id="${r.p.id}" tabindex="0">
+                <i class="pdot" style="background:${COLORS[r.level]}"></i>
+                <span class="name">${esc(r.p.name)}${tag}</span>
+                <span class="score" style="color:${COLORS[r.level]}">${has ? r.health : '—'}</span>
+                <span class="metric">${has ? `${r.overdue}<small> / ${r.open}</small>${bar(r.overdueRate * 100, 'var(--tm-home-danger)')}` : '—'}</span>
+                <span class="metric">${has ? `${r.drag}<small> 均 ${r.avgDelay.toFixed(0)} 天</small>${bar(r.drag, 'var(--tm-home-warning)')}` : '—'}</span>
+                <span class="metric">${r.p.recurringAll ? '—' : `${ratioText(r.ratio)}<small> ${r.doneW}/${r.createdW}</small>${bar(r.action ?? 0, 'var(--tm-home-success)')}`}</span>
+                <span class="metric ${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}">${r.p.recurringAll ? '—' : `${signed(diff)}<small> 现 ${r.backlogNow}</small>`}</span>
+            </div>`;
+        }).join('')}`;
+}
+
+function flowChart(r) {
+    const W = 520, H = 150, padL = 22, padB = 18, mid = (H - padB) / 2;
+    const n = r.flow.length;
+    const max = Math.max(2, ...r.flow.map((f) => Math.max(f.created, f.done)));
+    const bw = (W - padL) / n;
+    const scale = (mid - 6) / max;
+    const every = n > 14 ? 5 : n > 7 ? 2 : 1;
+    let out = '';
+    r.flow.forEach((f, i) => {
+        const x = padL + i * bw + bw * 0.18, w = bw * 0.64;
+        if (f.created) out += `<rect x="${x}" y="${mid - f.created * scale}" width="${w}" height="${f.created * scale}" rx="2" fill="#c5cbff"><title>${dateText(f.d)} 新建 ${f.created}</title></rect>`;
+        if (f.done) out += `<rect x="${x}" y="${mid + 1}" width="${w}" height="${f.done * scale}" rx="2" fill="#34a853" opacity=".8"><title>${dateText(f.d)} 完成 ${f.done}</title></rect>`;
+        if (i % every === 0 || i === n - 1) out += `<text x="${x + w / 2}" y="${H - 4}" font-size="10" text-anchor="middle" fill="#8a8f99">${f.d === 0 ? '今天' : dateText(f.d)}</text>`;
+    });
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="每日新建与完成">
+        <line x1="${padL}" x2="${W}" y1="${mid}" y2="${mid}" stroke="#e5e7ee"/>
+        <text x="0" y="${mid - 4}" font-size="10" fill="#8a8f99">进</text>
+        <text x="0" y="${mid + 13}" font-size="10" fill="#8a8f99">出</text>
+        ${out}</svg>`;
+}
+
+function renderDetail() {
+    const r = RESULTS.find((x) => x.p.id === S.sel) || RESULTS[0];
+    if (r.p.recurringAll) {
+        $('detail').innerHTML = `<div class="card-head"><i class="pdot" style="width:9px;height:9px;border-radius:50%;background:${COLORS.clear}"></i><h3>${esc(r.p.name)}</h3></div>
+            <div class="empty">该项目只有循环任务。循环任务按打卡统计，不参与拖延与项目评分。</div>`;
+        return;
+    }
+    const diff = r.backlogNow - r.backlogThen;
+    const parts = [
+        ['拖延', 100 - r.drag, S.wDrag, `拖延指数 ${r.drag}，取 100 − 指数`],
+        ['行动', r.actionPart, S.wAct, r.ratio === null ? (r.stalled ? '窗口内无新建也无完成，记 0' : '无数据，取中性 50') : `行动比 ${ratioText(r.ratio)}`],
+        ['按期', Math.round(100 * (1 - r.overdueRate)), S.wOver, `逾期占比 ${Math.round(r.overdueRate * 100)}%`],
+    ];
+    const tankText = diff > 0 ? `近 ${S.win} 天进比出多 <b class="up">${diff}</b> 项，积压在上涨。`
+        : diff < 0 ? `近 ${S.win} 天在消化积压，减少 <b class="down">${-diff}</b> 项。` : `近 ${S.win} 天进出持平。`;
+    const tone = (v) => v >= 75 ? COLORS.good : v >= 50 ? COLORS.warn : COLORS.bad;
+
+    const list = r.topDelays.slice(0, 7).map((x) => `
+        <div class="trow" data-tid="${x.t.id}">
+            <div style="min-width:0">
+                <div class="t">${esc(x.t.title)}</div>
+                <div class="why">${x.reason} · 创建于 ${dateText(x.t.created)}${x.t.due !== null ? ' · 截止 ' + dateText(x.t.due) : ''}</div>
+            </div>
+            <div>
+                <div class="d" style="color:${x.overdue ? 'var(--tm-home-danger)' : 'var(--tm-home-warning)'}">${Math.round(x.days)} <small>拖延天</small></div>
+                <div class="acts"><button data-act="today">今天做</button><button data-act="later">推迟一周</button><button data-act="drop">放弃</button></div>
+            </div>
+        </div>`).join('');
+
+    $('detail').innerHTML = `
+        <div class="card-head">
+            <i class="pdot" style="width:9px;height:9px;border-radius:50%;background:${COLORS[r.level]}"></i>
+            <h3>${esc(r.p.name)}</h3>
+            <span class="sub">${LABELS[r.level]}${r.open ? ' · ' + r.health + ' 分' : ''} · 未完成 ${r.open} 项${r.stalled ? ' · 近 ' + S.win + ' 天无活动' : ''}</span>
+        </div>
+        <div class="detail-grid">
+            <div>
+                ${r.open ? `<div class="sec-title">评分构成</div><div class="breakdown">${parts.map(([n, v, w, hint]) => `
+                    <div class="bd" title="${hint}"><span>${n} <small>×${w}</small></span>
+                    <span class="track"><i style="width:${v}%;background:${tone(v)}"></i></span><b>${v}</b></div>`).join('')}</div>` : ''}
+                <div class="sec-title">每日进出
+                    <span class="lg"><i style="background:#c5cbff"></i>新建</span>
+                    <span class="lg"><i style="background:var(--tm-home-success)"></i>完成</span>
+                </div>
+                ${flowChart(r)}
+                <div class="tank"><span class="num">${r.backlogThen} → ${r.backlogNow}</span><span>${tankText}</span></div>
+            </div>
+            <div>
+                <div class="sec-title">拖延最久的任务${r.topDelays.length > 7 ? `<span>（共 ${r.topDelays.length} 项）</span>` : ''}</div>
+                <div>${list || '<div class="empty">没有拖延中的任务</div>'}</div>
+            </div>
+        </div>`;
+}
+
+function renderFormula() {
+    $('formula').innerHTML = `
+        <div><b>单任务拖延天</b></div>
+        <div>· 已逾期：<code>逾期天数 × ${S.overdueMul}</code></div>
+        <div>· 无截止日期：${S.countNoDue ? `<code>max(0, 存在天数 − ${S.protect})</code>` : '不计入'}</div>
+        <div>· 未到开始日期、循环、已放弃：0</div>
+        <div style="margin-top:6px"><b>拖延指数</b> <code>100·(1 − e^(−平均拖延天/15))</code></div>
+        <div><b>行动比</b> <code>${S.win}天完成 ÷ ${S.win}天新建</code>；行动分 <code>min(比值,1.5)/1.5·100</code>，停滞记 0</div>
+        <div><b>项目评分</b> (100−拖延指数)×${S.wDrag} + 行动分×${S.wAct} + 按期率×${S.wOver} 的加权平均；≥75 健康，50–74 关注，&lt;50 风险</div>`;
+}
+
+function renderAll() {
+    RESULTS = PROJECTS.map(computeProject);
+    renderTabs(); renderOverview(); renderList(); renderDetail(); renderFormula();
+    $('overdueMulVal').textContent = '× ' + S.overdueMul;
+    $('wDragVal').textContent = S.wDrag; $('wActVal').textContent = S.wAct; $('wOverVal').textContent = S.wOver;
+}
+
+// ---------------- 交互 ----------------
+const select = (id) => { S.sel = id; renderAll(); };
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) select(b.dataset.id); });
+$('plist').addEventListener('click', (e) => { const r = e.target.closest('.prow[data-id]'); if (r) select(r.dataset.id); });
+$('plist').addEventListener('keydown', (e) => {
+    const r = e.target.closest('.prow[data-id]');
+    if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(r.dataset.id); }
+});
+const segBind = (id, fn) => $(id).addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    fn(b); [...$(id).children].forEach((x) => x.classList.toggle('on', x === b)); renderAll();
+});
+segBind('sortSeg', (b) => { S.sort = b.dataset.sort; });
+segBind('winSeg', (b) => { S.win = +b.dataset.w; });
+$('detail').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]'); if (!b) return;
+    const t = TASKS.find((x) => x.id === b.closest('.trow').dataset.tid); if (!t) return;
+    if (b.dataset.act === 'today') { t.due = 0; t.start = null; }
+    if (b.dataset.act === 'later') { t.due = 7; t.start = null; }
+    if (b.dataset.act === 'drop') t.abandoned = true;
+    renderAll();
+});
+const bind = (id, key, cast) => $(id).addEventListener('input', (e) => { S[key] = cast(e.target); renderAll(); });
+bind('protect', 'protect', (el) => +el.value);
+bind('countNoDue', 'countNoDue', (el) => el.checked);
+bind('overdueMul', 'overdueMul', (el) => +el.value);
+bind('wDrag', 'wDrag', (el) => +el.value);
+bind('wAct', 'wAct', (el) => +el.value);
+bind('wOver', 'wOver', (el) => +el.value);
+bind('tabMode', 'tabMode', (el) => el.value);
+
+renderAll();
+})();
+</script>
+</body>
+</html>
