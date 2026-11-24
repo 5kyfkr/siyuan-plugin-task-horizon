@@ -382,7 +382,7 @@
     const TM_SETTINGS_CALENDAR_CHOICES = new Set([
         'calendarInitialViewDesktop', 'calendarInitialViewMobile', 'calendarFirstDay',
         'calendar3DayTodayPosition', 'calendarSidebarDefaultPage', 'calendarHourSlotHeightMode',
-        'calendarMonthMinVisibleEvents', 'calendarIndependentScheduleTaskCreateMode',
+        'calendarMonthMinVisibleEvents', 'calendarHolidayFetchMode', 'calendarIndependentScheduleTaskCreateMode',
         'calendarNewScheduleMaxDurationMin', 'calendarQuickAddScheduleTimeMode',
         'calendarTomatoColorMode', 'calendarTomatoDisplayMode', 'calendarTaskDateColorMode', 'calendarScheduleReminderDefaultMode',
         'calendarIcsProvider',
@@ -430,13 +430,15 @@
                     || select.closest('[data-tm-settings-search-title]')?.dataset.tmSettingsSearchTitle || __tmT("settings.options");
                 group.setAttribute('aria-label', label);
             }
+            const description = select.getAttribute('aria-description');
+            if (description) group.setAttribute('aria-description', description);
             options.forEach((option) => {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'bc-tabs-trigger';
                 button.setAttribute('role', 'radio');
                 const label = option.label.trim();
-                button.title = label;
+                if (!description) button.title = label;
                 button.setAttribute('aria-label', label);
                 button.textContent = handler === 'updateTaskHeadingLevel' ? label.replace(/^(H[1-6]).*$/, '$1')
                     : /^(updateDefaultViewMode(Mobile)?|updateDockDefaultViewMode)$/.test(handler) ? label.replace(/视图$/, '') : label;

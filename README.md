@@ -6,6 +6,16 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.6
+
+- **Calendar**
+  - In **Settings → Time → Schedule & display**, choose **Automatic** or **Manual** for official holiday data. In Manual mode, **Update holidays for this year and next** fetches official holidays and makeup workdays without changing personal holidays.
+  - Automatic mode downloads only missing years as needed. Saved official holiday data syncs through SiYuan and remains available offline.
+- **Summaries and reports:** summaries, daily reports, and weekly reports keep subtasks under their parents. At each level, completed tasks are sorted by completion time and planned tasks by title. If a parent is outside the current group, the subtask shows a **Parent task** label.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.5
 
 - **Homepage and procrastination scores**
@@ -17,9 +27,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
   - Improve focus statistics, summary, and chart layouts in the Dock and narrow windows. Changing a range refreshes only its chart.
 - **Board sets:** add multi-select mode for bulk actions.
 - **Mobile:** fix the date picker closing immediately after opening when quickly creating a task on Android.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.4
 
@@ -260,6 +267,13 @@ WebDAV has three fields: a directory URL, username and password. For Nutstore, c
 The displayed WebDAV URL excludes credentials. A calendar supporting HTTP authentication needs the account and app password entered separately. Other calendars need a URL that directly returns the ICS file; a share page alone is insufficient. WebDAV requests run on the SiYuan server, whose proxy may reject local NAS addresses, so confirm the service is reachable from that server. Public WebDAV URLs must use HTTPS.
 
 The calendar supports day, week, month, and list presentations, task editing, schedules, and an optional sidebar. Configure working days, holidays, display options, and reminders in time settings.
+
+In **Time → Schedule & display**, **Official holiday data** offers two modes:
+
+- **Automatic** uses saved or synced official holiday data and downloads only missing years as needed. After a failed download, it retries only when that year is needed again and at least 30 minutes have passed.
+- **Manual** uses existing data for the calendar, reminders, and exports. **Update holidays for this year and next** downloads both years, even if their data is already available. Failed updates can be retried immediately.
+
+Neither mode contacts external holiday services while offline. Saved or synced data remains available, and official updates do not overwrite personal holidays.
 
 Optional integrations include Dock Tomato for focus and Pomodoro statistics, supported points plugins, and calendar ICS publication. Enable the integrations you use and configure their data sources and permissions.
 

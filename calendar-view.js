@@ -63,6 +63,79 @@
     const CALENDAR_SUBSCRIPTION_TIMEOUT_MS = 180000;
     const CALENDAR_SUBSCRIPTION_MAX_ATTEMPTS = 3;
     const CN_HOLIDAY_CACHE_VERSION = 3;
+    const CN_HOLIDAY_CACHE_FILE = '/data/storage/petal/siyuan-plugin-task-horizon/calendar-holidays.json';
+    const CN_HOLIDAY_RETRY_DELAY_MS = 30 * 60 * 1000;
+    let cnHolidayCacheRead = null;
+    let cnHolidayCacheWrite = Promise.resolve();
+
+    function normalizeCnHolidayCacheRecord(value) {
+        if (!Array.isArray(value?.data) || value.predicted === true) return null;
+        const data = value.data.filter((item) => item && typeof item === 'object' && item.predicted !== true);
+        if (!data.length) return null;
+        return {
+            ts: Number(value.ts) || 0,
+            data,
+            checkedDay: String(value.checkedDay || '').trim(),
+            cacheVersion: Number(value.cacheVersion) || 1,
+        };
+    }
+
+    function normalizeCnHolidayCacheFile(value) {
+        const years = {};
+        const source = value?.years && typeof value.years === 'object' && !Array.isArray(value.years)
+            ? value.years
+            : {};
+        Object.entries(source).forEach(([yearKey, record]) => {
+            const year = Number(yearKey);
+            if (!Number.isInteger(year) || year < 1900 || year > 2100) return;
+            const normalized = normalizeCnHolidayCacheRecord(record);
+            if (normalized) years[String(year)] = normalized;
+        });
+        return { version: 1, years };
+    }
+
+    async function readCnHolidayCacheFile() {
+        try {
+            return normalizeCnHolidayCacheFile(JSON.parse((await getFileText(CN_HOLIDAY_CACHE_FILE)) || '{}'));
+        } catch (error) {
+            if (isMissingFileReadError(error)) return normalizeCnHolidayCacheFile(null);
+            throw error;
+        }
+    }
+
+    function loadCnHolidayCacheStore() {
+        if (!cnHolidayCacheRead) {
+            cnHolidayCacheRead = readCnHolidayCacheFile().catch(() => {
+                cnHolidayCacheRead = null;
+                return normalizeCnHolidayCacheFile(null);
+            });
+        }
+        return cnHolidayCacheRead;
+    }
+
+    async function saveCnHolidayCacheRecords(records) {
+        const updates = (Array.isArray(records) ? records : []).map((item) => ({
+            year: Number(item?.year),
+            record: normalizeCnHolidayCacheRecord(item?.record),
+        })).filter((item) => Number.isInteger(item.year) && item.year >= 1900 && item.year <= 2100 && item.record);
+        if (!updates.length) return null;
+        cnHolidayCacheWrite = cnHolidayCacheWrite.then(async () => {
+            const merged = await readCnHolidayCacheFile();
+            let changed = false;
+            updates.forEach(({ year, record }) => {
+                const saved = merged.years[year];
+                if (saved && record.ts <= saved.ts) return;
+                merged.years[year] = record;
+                changed = true;
+            });
+            if (changed) {
+                await putFileText(CN_HOLIDAY_CACHE_FILE, JSON.stringify(merged), true);
+            }
+            cnHolidayCacheRead = Promise.resolve(merged);
+            return merged;
+        }).catch(() => null);
+        return cnHolidayCacheWrite;
+    }
     // View changes should reuse the same schedule/history snapshot. Mutations
     // invalidate these caches explicitly, so a longer read TTL does not delay
     // edits while it prevents every month/week/list switch from hitting the
@@ -6241,7 +6314,7 @@
         throw lastErr || new Error('getFileTextRetry failed');
     }
 
-    async function putFileText(path, text) {
+    async function putFileText(path, text, verify = false) {
         const formDir = new FormData();
         formDir.append('path', '/data/storage/petal/siyuan-plugin-task-horizon');
         formDir.append('isDir', 'true');
@@ -6255,6 +6328,7 @@
         globalThis.__tmHost?.appendStorageRequestApp?.(form);
         const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (verify && (await res.json())?.code !== 0) throw new Error('putFile failed');
         return true;
     }
 
@@ -9808,6 +9882,7 @@
             visibleEndTime: visibleEndTime0,
             showCnHoliday: !!s.calendarShowCnHoliday,
             cnHolidayColor: String(s.calendarCnHolidayColor || '#ff3333').trim() || '#ff3333',
+            holidayFetchMode: String(s.calendarHolidayFetchMode || 'auto') === 'manual' ? 'manual' : 'auto',
             showLunar: !!s.calendarShowLunar,
             showTomatoMaster: tomatoMaster,
             showTaskReminders: s.calendarShowTaskReminders !== false,
@@ -26770,57 +26845,24 @@
         return out;
     }
 
-    async function loadCnHolidayYearUncached(year, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const meta = (opts.result && typeof opts.result === 'object') ? opts.result : null;
-        const mark = (status) => { if (meta) meta.status = status; };
-        const y = Number(year);
-        if (!Number.isFinite(y) || y < 1900 || y > 2100) {
-            mark('missing');
-            return [];
-        }
-        const futureYear = y > new Date().getFullYear();
-        const todayKey = formatDateKey(new Date());
-        if (!state.cnHolidayCache) state.cnHolidayCache = new Map();
-        const cached = state.cnHolidayCache.get(y);
-        const cachedVersionCurrent = cached?.cacheVersion === CN_HOLIDAY_CACHE_VERSION;
-        const cachedUsable = !futureYear || cachedVersionCurrent;
-        if (!opts.forceRefresh && cachedUsable && cached && Array.isArray(cached.data)
-            && String(cached.checkedDay || '') === todayKey) {
-            mark('cached');
-            return futureYear && cached.predicted !== false ? buildPredictedCnHolidayDays(y) : cached.data;
-        }
-        const lsKey = `tm_cn_holiday_${y}`;
-        let localData = [];
-        let localTs = 0;
-        let localPredicted = false;
-        let localCheckedDay = '';
-        let localCacheUsable = !futureYear;
-        try {
-            const raw = String(localStorage.getItem(lsKey) || '');
-            if (raw) {
-                const obj = JSON.parse(raw);
-                const data = Array.isArray(obj?.data) ? obj.data : [];
-                const ts = Number(obj?.ts) || 0;
-                if (data.length) {
-                    localData = data;
-                    localTs = ts;
-                }
-                localPredicted = obj?.predicted === true;
-                localCheckedDay = String(obj?.checkedDay || '').trim();
-                localCacheUsable = !futureYear || Number(obj?.cacheVersion) === CN_HOLIDAY_CACHE_VERSION;
-                if (!opts.forceRefresh && localCacheUsable && data.length && ts && localCheckedDay === todayKey) {
-                    // Stamp the read time, not the snapshot time. peek() treats
-                    // the in-memory cache as stale after 12h, so keeping the
-                    // original snapshot ts made every aux load re-spawn a
-                    // background read (and a deferred refetch) for data that
-                    // was already in hand.
-                    state.cnHolidayCache.set(y, { ts: Date.now(), data, predicted: localPredicted, checkedDay: localCheckedDay, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
-                    mark('cached');
-                    return futureYear && localPredicted ? buildPredictedCnHolidayDays(y) : data;
-                }
-            }
-        } catch (e) {}
+    async function getCnHolidayCacheRecord(year) {
+        const future = year > new Date().getFullYear();
+        const cacheStore = await loadCnHolidayCacheStore();
+        const record = cacheStore.years[year];
+        if (record) return !future || record.cacheVersion === CN_HOLIDAY_CACHE_VERSION ? record : null;
+        let legacy;
+        try { legacy = normalizeCnHolidayCacheRecord(JSON.parse(localStorage.getItem(`tm_cn_holiday_${year}`))); } catch (e) {}
+        if (!legacy || (future && legacy.cacheVersion !== CN_HOLIDAY_CACHE_VERSION)) return null;
+        const saved = await saveCnHolidayCacheRecords([{ year, record: legacy }]);
+        return saved?.years[year] || legacy;
+    }
+
+    function canFetchCnHolidayYear(manual) {
+        const store = state.settingsStore || state.sideDay?.settingsStore;
+        return globalThis.navigator?.onLine !== false && (manual || store?.data?.calendarHolidayFetchMode !== 'manual');
+    }
+
+    async function fetchCnHolidayYear(y, manual) {
         const parseTimorYearPayload = (json) => {
             // 兼容 timor 年接口的不同结构:
             // 1) { holiday: { "MM-DD" or "YYYY-MM-DD": { holiday: bool, name, date? } } }
@@ -26870,22 +26912,20 @@
             }
             return out;
         };
-        const tryFetchTimor = async (baseUrl) => {
-            const normalized = String(baseUrl || '').replace(/\/+$/, '');
-            // timor 年接口新版建议带尾斜杠
-            const res = await fetch(`${normalized}/api/holiday/year/${y}/`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            return parseTimorYearPayload(json);
+        const fetchJson = async (url) => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000);
+            try {
+                const res = await fetch(url, { signal: controller.signal });
+                if (!res.ok) return null;
+                return await res.json();
+            } finally {
+                clearTimeout(timeout);
+            }
         };
-        const tryFetchHolidayCn = async (url) => {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            return parseHolidayCnYearPayload(json, y);
-        };
+        const tryFetchTimor = async (baseUrl) => parseTimorYearPayload(await fetchJson(`${baseUrl}/api/holiday/year/${y}/`));
+        const tryFetchHolidayCn = async (url) => parseHolidayCnYearPayload(await fetchJson(url), y);
 
-        let data = [];
         // holiday-cn automatically mirrors the State Council notice and
         // currently publishes the new year sooner than timor. Keep both the
         // CDN and GitHub raw endpoints, then retain timor as compatibility
@@ -26897,93 +26937,125 @@
             () => tryFetchTimor('https://timor.tech'),
         ];
         for (const loadSource of holidaySources) {
-            if (Array.isArray(data) && data.length) break;
-            try { data = await loadSource(); } catch (e) {}
+            if (!canFetchCnHolidayYear(manual)) break;
+            try {
+                const data = await loadSource();
+                if (data.length) return data;
+            } catch (e) {}
         }
-        if (Array.isArray(data) && data.length) {
-            const ts = Date.now();
-            const completed = futureYear ? mergeCnHolidayFestivalFallback(data, y) : data;
-            const predicted = completed.length > 0 && completed.every((item) => item?.predicted === true);
-            state.cnHolidayCache.set(y, { ts, data: completed, predicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
-            try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: completed, predicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
-            mark('refreshed');
-            return completed;
-        }
-
-        // Network/API failure fallback: keep current-version data instead of
-        // allowing an old future-year snapshot to masquerade as official.
-        const cachedFallback = (cachedUsable && Array.isArray(cached?.data) && cached.data.length)
-            ? cached.data
-            : (localCacheUsable && Array.isArray(localData) && localData.length ? localData : []);
-        if (futureYear && cachedFallback.length === 0) {
-            const predicted = buildPredictedCnHolidayDays(y);
-            if (predicted.length) {
-                const ts = Date.now();
-                state.cnHolidayCache.set(y, { ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
-                try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
-                mark('predicted');
-                return predicted;
-            }
-        }
-        const fallback = futureYear ? mergeCnHolidayFestivalFallback(cachedFallback, y) : cachedFallback;
-        if (fallback.length) {
-            const predicted = futureYear && fallback.length !== cachedFallback.length;
-            const ts = localTs || Number(cached?.ts) || Date.now();
-            const fallbackPredicted = futureYear
-                ? fallback.length > 0 && fallback.every((item) => item?.predicted === true)
-                : predicted;
-            state.cnHolidayCache.set(y, { ts, data: fallback, predicted: fallbackPredicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
-            try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: fallback, predicted: fallbackPredicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
-            mark('cached');
-            return fallback;
-        }
-        if (futureYear) {
-            const predicted = buildPredictedCnHolidayDays(y);
-            if (predicted.length) {
-                const ts = Date.now();
-                state.cnHolidayCache.set(y, { ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
-                try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
-                mark('predicted');
-                return predicted;
-            }
-        }
-        mark('missing');
         return [];
     }
 
-    async function loadCnHolidayYear(year, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const y = Number(year);
-        if (!Number.isFinite(y) || y < 1900 || y > 2100 || opts.forceRefresh === true) {
-            return await loadCnHolidayYearUncached(year, opts);
+    async function loadCnHolidayYearUncached(year, manual) {
+        const today = new Date();
+        const future = year > today.getFullYear();
+        let record = await getCnHolidayCacheRecord(year);
+        let refreshed = false;
+        if (canFetchCnHolidayYear(manual) && (manual
+            || (!record && !(state.cnHolidayMissUntil.get(year) > Date.now())))) {
+            const data = await fetchCnHolidayYear(year, manual);
+            if (data.length) {
+                const next = { ts: Date.now(), data, checkedDay: formatDateKey(today), cacheVersion: CN_HOLIDAY_CACHE_VERSION };
+                const saved = await saveCnHolidayCacheRecords([{ year, record: next }]);
+                if (saved) {
+                    refreshed = true;
+                    record = saved.years[year];
+                }
+            }
+            if (refreshed) state.cnHolidayMissUntil.delete(year);
+            else state.cnHolidayMissUntil.set(year, Date.now() + CN_HOLIDAY_RETRY_DELAY_MS);
         }
-        const inflight = state.cnHolidayInflight instanceof Map
-            ? state.cnHolidayInflight
-            : (state.cnHolidayInflight = new Map());
-        const existing = inflight.get(y);
-        if (existing && typeof existing.then === 'function') return await existing;
-        const pending = loadCnHolidayYearUncached(y, opts);
-        inflight.set(y, pending);
+        // Do not write predictions or mark a failed request as fresh on disk.
+        const official = record?.data || [];
+        const days = future ? mergeCnHolidayFestivalFallback(official, year) : official;
+        if (record || cnHolidayCacheRead) state.cnHolidayCache.set(year, { hasOfficialData: Boolean(record), data: days });
+        return { days, refreshed };
+    }
+
+    async function loadCnHolidayYear(year, options = {}) {
+        const y = Number(year);
+        if (!Number.isInteger(y) || y < 1900 || y > 2100) return [];
+        const manual = options.manual === true;
+        const key = manual ? `manual:${y}` : y;
+        let pending = state.cnHolidayInflight.get(key);
+        if (!pending) {
+            pending = loadCnHolidayYearUncached(y, manual).finally(() => {
+                if (state.cnHolidayInflight.get(key) === pending) state.cnHolidayInflight.delete(key);
+            });
+            state.cnHolidayInflight.set(key, pending);
+        }
+        const result = await pending;
+        if (options.result) options.result.refreshed = result.refreshed;
+        return result.days;
+    }
+
+    async function refreshOfficialHolidayData(button) {
+        if (button?.disabled) return false;
+        const label = String(button?.textContent || __tmT("calendar.updateOfficialHolidays"));
+        if (button) {
+            button.disabled = true;
+            button.textContent = __tmT("calendar.updatingOfficialHolidays");
+        }
         try {
-            return await pending;
+            const currentYear = new Date().getFullYear();
+            const years = [currentYear, currentYear + 1];
+            const results = await Promise.all(years.map(async (year) => {
+                const result = {};
+                const days = await loadCnHolidayYear(year, { manual: true, result });
+                if (Array.isArray(days) && days.length) {
+                    state.cnHolidayDaysByYear?.set?.(year, days);
+                    state.cnHolidayDaysByYearCacheVersion?.set?.(year, CN_HOLIDAY_CACHE_VERSION);
+                }
+                return result.refreshed;
+            }));
+            const refreshed = results.filter(Boolean).length;
+            if (refreshed === years.length) toast(__tmT("calendar.officialHolidaysUpdated"), 'success');
+            else if (refreshed > 0) toast(__tmT("calendar.officialHolidaysPartiallyUpdated"), 'warning');
+            else toast(__tmT("calendar.officialHolidaysUpdateFailed"), 'error');
+            refetchAllCalendars({ reason: 'official-holidays-updated', hard: true });
+            return refreshed > 0;
+        } catch (error) {
+            toast(__tmT("calendar.officialHolidaysUpdateFailed"), 'error');
+            return false;
         } finally {
-            if (inflight.get(y) === pending) inflight.delete(y);
+            if (button) {
+                button.disabled = false;
+                button.textContent = label;
+            }
         }
     }
 
     function peekCnHolidayYear(year) {
         const y = Number(year);
-        const missUntil = Number(state.cnHolidayMissUntil?.get?.(y) || 0);
-        if (missUntil > Date.now()) return [];
-        if (missUntil) {
-            try { state.cnHolidayMissUntil.delete(y); } catch (e) {}
+        const cached = state.cnHolidayCache.get(y);
+        if (!cached) return null;
+        if (cached.hasOfficialData || !canFetchCnHolidayYear(false) || state.cnHolidayMissUntil.get(y) > Date.now()) return cached.data;
+        return null;
+    }
+
+    function invalidateCnHolidayView() {
+        state.cnHolidayCache.clear();
+        state.cnHolidayDaysByYear?.clear?.();
+        state.cnHolidayDaysByYearCacheVersion?.clear?.();
+        state.cnHolidayMap = new Map();
+        state.sideDay.cnHolidayMap = new Map();
+        state.cnHolidaySignature = '';
+    }
+
+    async function reloadCnHolidayCache() {
+        if (!cnHolidayCacheRead && !state.calendar && !state.sideDay?.calendar) return false;
+        await cnHolidayCacheWrite;
+        const previous = cnHolidayCacheRead;
+        cnHolidayCacheRead = null;
+        const next = await loadCnHolidayCacheStore();
+        if (!cnHolidayCacheRead) {
+            cnHolidayCacheRead = previous;
+            return false;
         }
-        const cached = state.cnHolidayCache instanceof Map ? state.cnHolidayCache.get(y) : null;
-        if (!cached || !Array.isArray(cached.data)) return null;
-        const futureYear = y > new Date().getFullYear();
-        if (futureYear && cached.cacheVersion !== CN_HOLIDAY_CACHE_VERSION) return null;
-        if (String(cached.checkedDay || '') !== formatDateKey(new Date())) return null;
-        return cached.data;
+        if (previous && JSON.stringify(await previous) === JSON.stringify(next)) return false;
+        invalidateCnHolidayView();
+        refetchAllCalendars({ reason: 'holiday-cache-sync', flushTaskPanel: false });
+        return true;
     }
 
     function getCnHolidayYearsForRange(rangeStart, rangeEnd) {
@@ -39524,18 +39596,12 @@
                     rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainAux, viewType, info);
                     const settings = getSettings();
                     const years = getCnHolidayYearsForRange(info?.start, info?.end);
-                    // Holiday days must be monotonic within a session: once a
-                    // year's data has been obtained (network or localStorage),
-                    // a later peek miss (freshness window, transient network
-                    // failure) may never blank it again. Without this, a
-                    // follow-up aux commit repainted the strip without the
-                    // holiday events that the previous commit had shown.
+                    // Keep previously displayed days on screen while missing official data loads.
                     if (!(state.cnHolidayDaysByYear instanceof Map)) state.cnHolidayDaysByYear = new Map();
                     if (!(state.cnHolidayDaysByYearCacheVersion instanceof Map)) state.cnHolidayDaysByYearCacheVersion = new Map();
-                    const resolveCnHolidayYearDays = (y) => {
+                    const resolveCnHolidayYearDays = (y, peeked) => {
                         const yearNumber = Number(y);
                         const futureYear = yearNumber > new Date().getFullYear();
-                        const peeked = peekCnHolidayYear(y);
                         if (Array.isArray(peeked) && peeked.length) {
                             state.cnHolidayDaysByYear.set(yearNumber, peeked);
                             state.cnHolidayDaysByYearCacheVersion.set(yearNumber, CN_HOLIDAY_CACHE_VERSION);
@@ -39559,11 +39625,9 @@
                     // source, so Promise.race alone still allowed 700-1500ms
                     // waits in list/month switches.
                     const recordsForPaint = Promise.resolve(cachedRecords === null ? [] : cachedRecords);
-                    const cachedHolidayParts = settings.showCnHoliday
-                        ? years.map((y) => resolveCnHolidayYearDays(y))
-                        : [];
-                    const holidayNeedsBackgroundRead = settings.showCnHoliday
-                        && cachedHolidayParts.some((part) => part === null);
+                    const holidaySnapshots = settings.showCnHoliday ? years.map(peekCnHolidayYear) : [];
+                    const cachedHolidayParts = holidaySnapshots.map((days, index) => resolveCnHolidayYearDays(years[index], days));
+                    const holidayNeedsBackgroundRead = holidaySnapshots.some((part) => part === null);
                     const cachedReminderBlocks = (settings.linkDockTomato && settings.showTaskReminders !== false)
                         ? peekReminderBlocks()
                         : [];
@@ -39575,18 +39639,17 @@
                     if (recordsPromise) backgroundLoads.push(recordsPromise);
                     if (holidayNeedsBackgroundRead) {
                         holidayBackgroundPromise = Promise.all(years.map((y, index) => {
-                            const cached = cachedHolidayParts[index];
+                            const cached = holidaySnapshots[index];
                             if (cached !== null) return Promise.resolve(cached);
                             return loadCnHolidayYear(y).then((days) => {
                                 if (!Array.isArray(days) || days.length === 0) {
-                                    try { state.cnHolidayMissUntil.set(Number(y), Date.now() + 60000); } catch (e) {}
+                                    return [];
                                 } else if (state.cnHolidayDaysByYear instanceof Map) {
                                     state.cnHolidayDaysByYear.set(Number(y), days);
                                     state.cnHolidayDaysByYearCacheVersion.set(Number(y), CN_HOLIDAY_CACHE_VERSION);
                                 }
                                 return Array.isArray(days) ? days : [];
                             }).catch(() => {
-                                try { state.cnHolidayMissUntil.set(Number(y), Date.now() + 60000); } catch (e) {}
                                 return [];
                             });
                         }));
@@ -43318,6 +43381,10 @@
         const indexOnly = options?.indexOnly === true;
         state.settingsStore = settingsStore || state.settingsStore || null;
         const s = getSettings();
+        const currentYear = new Date().getFullYear();
+        const holidayNetworkPolicy = (mode) => mode === 'manual'
+            ? __tmT('calendar.holidayNetworkManual')
+            : __tmT('calendar.holidayNetworkOnDemand', { minutes: CN_HOLIDAY_RETRY_DELAY_MS / 60000 });
         const visibleRange = getCalendarVisibleSlotRange(s);
         const visibleStartOptions = buildCalendarVisibleTimeOptions(visibleRange.start, false);
         const visibleEndOptions = buildCalendarVisibleTimeOptions(visibleRange.end, true);
@@ -43494,9 +43561,20 @@
                     <div class="tm-settings-section-desc">${__tmT("calendar.controlsScheduleCreationTaskDateLinkageAndTheDisplay")}</div>
                     ${calendarFieldsSetting(s.eventFields)}
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.personalHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.daysConfiguredOverrideOfficialRestDaysOrAddAny", { value1: new Date().getFullYear(), value2: countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides) })}</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.personalHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.daysConfiguredOverrideOfficialRestDaysOrAddAny", { value1: currentYear, value2: countCalendarCustomHolidayOverrides(currentYear, s.customHolidayOverrides) })}</div>
                         </div>
                         <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="manageCustomHolidays">${__tmT("calendar.managePersonalHolidays")}</button>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.officialHolidayFetchMode")}<div class="tm-calendar-settings-label-desc">${holidayNetworkPolicy(s.holidayFetchMode)}</div></div>
+                        <select class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.officialHolidayFetchMode")}" aria-description="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.officialHolidayFetchModeDescription")}" data-tm-cal-setting="calendarHolidayFetchMode">
+                            <option value="auto" ${s.holidayFetchMode === 'auto' ? 'selected' : ''}>${__tmT("calendar.officialHolidayFetchAuto")}</option>
+                            <option value="manual" ${s.holidayFetchMode === 'manual' ? 'selected' : ''}>${__tmT("calendar.officialHolidayFetchManual")}</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.updateOfficialHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT('calendar.officialHolidayYearRange', { year: currentYear, nextYear: currentYear + 1 })}</div></div>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="refreshOfficialHolidays">${__tmT("calendar.updateOfficialHolidays")}</button>
                     </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.taskDatesFollowSchedules")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.syncsTaskDatesWhenLinkedSchedulesChangeASingle")}</div>
@@ -43860,6 +43938,10 @@
                 store.data[key] = Array.from(ids);
             } else if (key === 'calendarIcsCalendarName') {
                 store.data[key] = String(el.value || '').trim() || __tmT("common.taskManager");
+            } else if (key === 'calendarHolidayFetchMode') {
+                store.data[key] = String(el.value || '').trim() === 'manual' ? 'manual' : 'auto';
+                const policy = el.closest('.tm-calendar-settings-row')?.querySelector('.tm-calendar-settings-label-desc');
+                if (policy) policy.textContent = holidayNetworkPolicy(store.data[key]);
             } else if (el.type === 'checkbox') {
                 store.data[key] = !!el.checked;
             } else {
@@ -43886,7 +43968,9 @@
                 }
             } catch (e2) {}
             try {
-                if (key.startsWith('calendarIcs')) {
+                if (key === 'calendarHolidayFetchMode') {
+                    refetchAllCalendars({ reason: 'holiday-fetch-mode-changed', hard: true });
+                } else if (key.startsWith('calendarIcs')) {
                     globalThis.__tmCalendarCaldav?.markDirty(`settings:${key}`);
                     reconcileCalendarSubscriptionPublisher({ reason: `settings:${key}` });
                     if (store.data.calendarIcsEnabled === true) {
@@ -44033,6 +44117,11 @@
                 if (action === 'manageCustomHolidays') {
                     event.preventDefault();
                     openCalendarCustomHolidayEditor(containerEl);
+                    return;
+                }
+                if (action === 'refreshOfficialHolidays') {
+                    event.preventDefault();
+                    await refreshOfficialHolidayData(settingButton);
                     return;
                 }
             }
@@ -44692,30 +44781,6 @@
         return true;
     }
 
-    function getCnHolidayLocalCache(year) {
-        const y = Number(year);
-        if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
-        const key = `tm_cn_holiday_${Math.round(y)}`;
-        try {
-            const raw = String(localStorage.getItem(key) || '');
-            if (!raw.trim()) return null;
-            const parsed = JSON.parse(raw);
-            const data = Array.isArray(parsed?.data) ? parsed.data : [];
-            if (!data.length) return null;
-            return {
-                year: Math.round(y),
-                key,
-                ts: Number(parsed?.ts) || 0,
-                data,
-                predicted: parsed?.predicted === true,
-                checkedDay: String(parsed?.checkedDay || '').trim(),
-                cacheVersion: Number(parsed?.cacheVersion) || 0,
-            };
-        } catch (e) {
-            return null;
-        }
-    }
-
     async function exportMigrationData(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const out = {
@@ -44738,33 +44803,14 @@
                 .filter((item) => Number.isFinite(item) && item >= 1900 && item <= 2100)
                 .map((item) => Math.round(item))));
             for (const year of years) {
-                const before = getCnHolidayLocalCache(year);
-                let refreshed = false;
-                let cacheRecord = before;
-                let data = before?.data || [];
-                let ts = Number(before?.ts) || 0;
+                const result = {};
                 if (opts.refreshCurrentYear === true && year === new Date().getFullYear()) {
-                    try {
-                        const refreshResult = {};
-                        const next = await loadCnHolidayYear(year, { forceRefresh: true, result: refreshResult });
-                        if (Array.isArray(next) && next.length) {
-                            const after = getCnHolidayLocalCache(year);
-                            cacheRecord = after || before;
-                            refreshed = refreshResult.status === 'refreshed';
-                            data = next;
-                            ts = Number(after?.ts) || Number(before?.ts) || Date.now();
-                        }
-                    } catch (e) {}
+                    await loadCnHolidayYear(year, { result });
                 }
-                if (Array.isArray(data) && data.length) {
-                    out.cnHolidays[String(year)] = {
-                        ts,
-                        data,
-                        predicted: cacheRecord?.predicted === true,
-                        checkedDay: cacheRecord?.checkedDay || '',
-                        cacheVersion: cacheRecord?.cacheVersion || 0,
-                    };
-                    out.holidayStatuses.push({ year, status: refreshed ? 'refreshed' : 'cached', count: data.length });
+                const record = await getCnHolidayCacheRecord(year);
+                if (record) {
+                    out.cnHolidays[String(year)] = record;
+                    out.holidayStatuses.push({ year, status: result.refreshed ? 'refreshed' : 'cached', count: record.data.length });
                 } else {
                     out.holidayStatuses.push({ year, status: 'missing', count: 0 });
                     out.summary.holidayMissingYears.push(year);
@@ -44797,27 +44843,13 @@
                 source: 'settings-migration',
             });
         }
-        const holidays = (source.cnHolidays && typeof source.cnHolidays === 'object' && !Array.isArray(source.cnHolidays))
-            ? source.cnHolidays
-            : {};
-        Object.entries(holidays).forEach(([yearKey, value]) => {
-            const year = Number(yearKey);
-            const y = Math.round(year);
-            const data = Array.isArray(value?.data) ? value.data : [];
-            if (!Number.isFinite(year) || y < 1900 || y > 2100 || !data.length) return;
-            const ts = Number(value?.ts) || Date.now();
-            const cacheVersion = Number(value?.cacheVersion) === CN_HOLIDAY_CACHE_VERSION
-                ? CN_HOLIDAY_CACHE_VERSION
-                : 1;
-            const predicted = value?.predicted === true;
-            const checkedDay = String(value?.checkedDay || '').trim();
-            try {
-                localStorage.setItem(`tm_cn_holiday_${y}`, JSON.stringify({ ts, data, predicted, checkedDay, cacheVersion }));
-                if (!state.cnHolidayCache) state.cnHolidayCache = new Map();
-                state.cnHolidayCache.set(y, { ts, data, predicted, checkedDay, cacheVersion });
-                result.holidayYears += 1;
-            } catch (e) {}
-        });
+        const importedRecords = Object.entries(normalizeCnHolidayCacheFile({ years: source.cnHolidays }).years)
+            .map(([year, record]) => ({ year, record }));
+        if (importedRecords.length) {
+            if (!await saveCnHolidayCacheRecords(importedRecords)) throw new Error('calendar-holidays-save-failed');
+            result.holidayYears = importedRecords.length;
+            invalidateCnHolidayView();
+        }
         if (result.schedules || result.holidayYears) {
             try { scheduleCalendarRefresh({ reason: 'settings-migration-import', main: true, side: true, hard: true }); } catch (e) {}
         }
@@ -44913,6 +44945,7 @@
         reassignScheduleLinkedTask,
         restoreTaskCompletion,
         setSettingsStore,
+        reloadHolidayCache: reloadCnHolidayCache,
         refreshDocGroupNames,
         scheduleDefaultViewForCurrentHost,
         getViewType: () => String(getCalendarView(state.calendar)?.type || state._lastViewType || '').trim(),

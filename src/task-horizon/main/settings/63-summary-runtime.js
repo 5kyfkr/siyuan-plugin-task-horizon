@@ -331,30 +331,11 @@
         const allGroupsSelected = groupIds.includes('__all__');
         const docIdFilter = String(f.docId || '__all__').trim();
         const idMap = new Map();
-        const levelMemo = new Map();
 
         arr.forEach((t) => {
             const id = String(t?.id || '').trim();
             if (id) idMap.set(id, t);
         });
-
-        const resolveLevel = (task) => {
-            const id = String(task?.id || '').trim();
-            if (!id) return 0;
-            if (levelMemo.has(id)) return levelMemo.get(id);
-            const seen = new Set([id]);
-            let level = 0;
-            let pid = String(task?.parentTaskId || '').trim();
-            while (pid && !seen.has(pid)) {
-                seen.add(pid);
-                const parent = idMap.get(pid);
-                if (!parent) break;
-                level += 1;
-                pid = String(parent?.parentTaskId || '').trim();
-            }
-            levelMemo.set(id, level);
-            return level;
-        };
 
         arr.forEach((task) => {
             if (!task || !task.id) return;
@@ -438,8 +419,11 @@
                     : __tmT("common.notSet");
             });
 
+            const parentTaskId = String(task.parentTaskId || '').trim();
             out.push({
                 id: String(task.id || '').trim(),
+                parentTaskId,
+                parentTaskTitle: String(idMap.get(parentTaskId)?.content || '').trim(),
                 sourceTaskId: task.isRecurringInstance ? String(task.sourceTaskId || task.recurringSourceTaskId || '').trim() : '',
                 plannedDate: task.isRecurringInstance ? __tmSummaryDateOnlyText(task.recurringSourceDue || task.recurringSourceStart || startDate) : '',
                 content: String(task.content || '').trim() || __tmT("settings.noContent"),
@@ -460,7 +444,6 @@
                 customFieldValues,
                 h2Id: String(task.h2Id || '').trim(),
                 h2Name: String(task.h2 || task.h2Name || '').trim() || __tmT("homepage.noHeading"),
-                level: resolveLevel(task),
             });
         });
 
@@ -482,6 +465,33 @@
         return [name !== normalize(task.content) ? name : '', span, rule].filter(Boolean).join(' · ');
     }
 
+    function __tmSummarySectionRows(tasks) {
+        // Input is already sorted by completion time and title; preserve that order among siblings.
+        const ids = new Set(tasks.map(task => task.id));
+        const roots = [], children = new Map();
+        for (const task of tasks) {
+            const pid = task.parentTaskId;
+            if (!pid || pid === task.id || !ids.has(pid)) roots.push(task);
+            else {
+                if (!children.has(pid)) children.set(pid, []);
+                children.get(pid).push(task);
+            }
+        }
+        const rows = [], seen = new Set();
+        const stack = roots.reverse().map(task => ({ task, level: 0 }));
+        while (stack.length) {
+            const row = stack.pop();
+            if (seen.has(row.task)) continue;
+            seen.add(row.task);
+            rows.push(row);
+            const list = children.get(row.task.id) || [];
+            for (let i = list.length - 1; i >= 0; i--) stack.push({ task: list[i], level: row.level + 1 });
+        }
+        // A corrupt parent cycle has no root. Keep its rows visible without inventing a hierarchy.
+        for (const task of tasks) if (!seen.has(task)) rows.push({ task, level: 0 });
+        return rows;
+    }
+
     function __tmSummaryGenerateMarkdown(tasks, filter, ctx) {
         const lines = [];
         const now = __tmSummaryFormatChinaDateTime(new Date());
@@ -489,6 +499,7 @@
         const preset = String(filter.preset || 'all').trim();
         const isDailyReport = preset === 'today_report';
         const isWeeklyReport = preset === 'this_week_report' || preset === 'last_week_report';
+        const isReport = isDailyReport || isWeeklyReport;
         const selectedGroupIds = __tmSummaryGetGroupIds(filter);
         const groupName = __tmSummaryGroupLabel(selectedGroupIds, ctx.groupNameMap, { compact: false });
         const docName = filter.docId === '__all__'
@@ -559,6 +570,29 @@
             });
             return details;
         };
+        const renderSection = (arr, limit) => {
+            for (const { task: t, level } of __tmSummarySectionRows(arr).slice(0, limit)) {
+                const indent = '  '.repeat(level);
+                const checkbox = isReport ? `[${__tmResolveTaskMarker(t)}]` : (t.done ? '[x]' : '[ ]');
+                const body = showTaskName ? t.content : __tmT("settings.task");
+                const dates = renderTaskDates(t, { omitPrimary: !isReport && groupBy === 'date' });
+                const ext = [];
+                if (showTaskName && level === 0 && t.parentTaskId && t.parentTaskId !== t.id) {
+                    ext.push(__tmT("settings.summaryParentTask", { title: t.parentTaskTitle || t.parentTaskId }));
+                }
+                if (showDocName && (isReport || groupBy !== 'doc')) ext.push(t.docName);
+                if (showPriority) ext.push(__tmT("settings.importance", { pr: __tmSummaryPriorityText(t.priority) }));
+                if (showStatus) ext.push(__tmSummaryStatusName(t, statusMap));
+                customFieldDisplayDefs.forEach((field) => {
+                    const value = String(t.customFieldValues?.[String(field.id || '').trim()] || '').trim();
+                    if (value) ext.push(`${field.name}:${value}`);
+                });
+                if (t.recurringLabel) ext.push(t.recurringLabel);
+                if (showFocusDuration && t.focusDuration) ext.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
+                lines.push(`${indent}- ${checkbox} ${body}${dates ? ` ${dates}` : ''}${ext.length ? `（${ext.join('｜')}）` : ''}`);
+                renderTaskDetails(t, indent).forEach(detail => lines.push(detail));
+            }
+        };
 
         lines.push(isDailyReport ? __tmT("settings.todaySReport") : (preset === 'this_week_report' ? __tmT("settings.thisWeekSReport") : (preset === 'last_week_report' ? __tmT("settings.lastWeekSReport") : __tmT("settings.taskSummary"))));
         lines.push('');
@@ -589,33 +623,16 @@
         const doneTasks = tasks.filter(t => t.done);
         const todoTasks = tasks.filter(t => __tmIsTaskActive(t));
         const overdueTasks = tasks.filter((t) => __tmIsTaskActive(t) && String(t.dueDate || '').trim() && String(t.dueDate || '').trim() < todayKey);
-        if (isDailyReport || isWeeklyReport) {
-            const renderTaskLines = (arr) => arr.length
-                ? arr.map((t) => {
-                    const body = showTaskName ? t.content : __tmT("settings.task");
-                    const suffix = [];
-                    if (showDocName) suffix.push(t.docName);
-                    if (showPriority) suffix.push(__tmT("settings.importance", { pr: __tmSummaryPriorityText(t.priority) }));
-                    if (showStatus) suffix.push(__tmSummaryStatusName(t, statusMap));
-                    customFieldDisplayDefs.forEach((field) => {
-                        const value = String(t.customFieldValues?.[String(field.id || '').trim()] || '').trim();
-                        if (value) suffix.push(`${field.name}:${value}`);
-                    });
-                    if (t.recurringLabel) suffix.push(t.recurringLabel);
-                    if (showFocusDuration && t.focusDuration) suffix.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
-                    const dates = renderTaskDates(t);
-                    const taskLine = `- [${__tmResolveTaskMarker(t)}] ${body}${dates ? ` ${dates}` : ''}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
-                    return [taskLine, ...renderTaskDetails(t)].join('\n');
-                }).join('\n')
-                : __tmT("settings.none");
-            const renderReportGroup = (title, arr, visibleTasks = arr) => {
+        if (isReport) {
+            const renderReportGroup = (title, arr, limit) => {
                 lines.push(`${__tmT(title)}（${arr.length}）`);
                 lines.push('');
-                lines.push(renderTaskLines(visibleTasks));
+                if (arr.length) renderSection(arr, limit);
+                else lines.push(__tmT("settings.none"));
                 lines.push('');
             };
             renderReportGroup("settings.completion", doneTasks);
-            renderReportGroup("settings.planned", todoTasks, todoTasks.slice(0, 30));
+            renderReportGroup("settings.planned", todoTasks, 30);
             renderReportGroup("settings.overdue", overdueTasks);
             return lines.join('\n');
         }
@@ -646,26 +663,7 @@
             const arr = sectionMap.get(name) || [];
             lines.push(`## ${name}（${arr.length}）`);
             lines.push('');
-            arr.forEach((t) => {
-                const dates = renderTaskDates(t, { omitPrimary: groupBy === 'date' });
-                const pr = __tmSummaryPriorityText(t.priority);
-                const checkbox = t.done ? '[x]' : '[ ]';
-                const body = showTaskName ? t.content : __tmT("settings.task");
-                const ext = [];
-                const level = Math.max(0, Number(t.level) || 0);
-                const indent = '  '.repeat(level);
-                if (showDocName && groupBy !== 'doc') ext.push(t.docName);
-                if (showPriority) ext.push(__tmT("settings.importance", { pr: pr }));
-                if (showStatus) ext.push(__tmSummaryStatusName(t, statusMap));
-                customFieldDisplayDefs.forEach((field) => {
-                    const value = String(t.customFieldValues?.[String(field.id || '').trim()] || '').trim();
-                    if (value) ext.push(`${field.name}:${value}`);
-                });
-                if (t.recurringLabel) ext.push(t.recurringLabel);
-                if (showFocusDuration && t.focusDuration) ext.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
-                lines.push(`${indent}- ${checkbox} ${body}${dates ? ` ${dates}` : ''}${ext.length ? `（${ext.join('｜')}）` : ''}`);
-                renderTaskDetails(t, indent).forEach(detail => lines.push(detail));
-            });
+            renderSection(arr);
             lines.push('');
         });
 

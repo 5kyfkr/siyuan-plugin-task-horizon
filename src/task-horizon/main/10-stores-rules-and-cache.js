@@ -9071,6 +9071,7 @@
             calendarTaskDatesColor: '#6b7280',
             calendarShowCnHoliday: true,
             calendarCnHolidayColor: '#ff3333',
+            calendarHolidayFetchMode: 'auto',
             calendarShowLunar: false,
             calendarSideDockEnabled: false,
             calendarSideDockWidth: 340,
@@ -9440,6 +9441,7 @@
             delete payload.agentMcpEnabledInitialized;
             delete payload.settingsFieldUpdatedAt;
             delete payload.taskTemplateLibrary;
+            payload.calendarHolidayFetchMode = payload.calendarHolidayFetchMode === 'manual' ? 'manual' : 'auto';
             return payload;
         },
 
@@ -9792,6 +9794,7 @@
                                 if (typeof cloudData.calendarTaskDatesColor === 'string') this.data.calendarTaskDatesColor = cloudData.calendarTaskDatesColor;
                                 if (typeof cloudData.calendarShowCnHoliday === 'boolean') this.data.calendarShowCnHoliday = cloudData.calendarShowCnHoliday;
                                 if (typeof cloudData.calendarCnHolidayColor === 'string') this.data.calendarCnHolidayColor = cloudData.calendarCnHolidayColor;
+                                if (typeof cloudData.calendarHolidayFetchMode === 'string') this.data.calendarHolidayFetchMode = cloudData.calendarHolidayFetchMode === 'manual' ? 'manual' : 'auto';
                                 if (typeof cloudData.calendarShowLunar === 'boolean') this.data.calendarShowLunar = cloudData.calendarShowLunar;
                                 if (typeof cloudData.calendarSideDockEnabled === 'boolean') this.data.calendarSideDockEnabled = cloudData.calendarSideDockEnabled;
                                 if (typeof cloudData.calendarSideDockWidth === 'number') this.data.calendarSideDockWidth = cloudData.calendarSideDockWidth;

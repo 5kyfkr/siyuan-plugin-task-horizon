@@ -330,10 +330,7 @@ const collectorContext = {
     __tmSummaryFormatFocusDuration() {
         return '';
     },
-    __tmSummaryCompareTasksByCompletion(a, b) {
-        return (Number(a?.completedAtTs) || 0) - (Number(b?.completedAtTs) || 0)
-            || String(a?.content || '').localeCompare(String(b?.content || ''), 'zh-Hans-CN');
-    },
+    __tmSummaryCompareTasksByCompletion: comparatorContext.compareTasks,
     __tmT(key) {
         return key === 'common.notSet' ? '未设置' : key;
     },
@@ -674,6 +671,55 @@ const dailyReportMarkdown = markdownContext.generateMarkdown(reportTasks, {
 });
 assert.match(dailyReportMarkdown, /^# 今日日报/m, 'daily reports must retain the daily report title');
 assert.equal((dailyReportMarkdown.match(/^## /gm) || []).length, 3, 'daily reports must also render only the three preset groups');
+
+const hierarchyMarkdown = (tasks, overrides = {}) => {
+    const filter = { ...markdownFilter, preset: 'all', start: '', end: '', fields: { ...markdownFilter.fields, dueDate: false }, ...overrides };
+    const ctx = { ...summaryTaskContext, summaryTasks: tasks.map(task => ({ docId: 'doc', content: task.id, ...task })) };
+    return markdownContext.generateMarkdown(collectorContext.collectTasks(ctx, filter), filter, ctx);
+};
+const taskLines = md => md.split('\n').filter(line => /^ *- \[[ x]\] /.test(line));
+const finished = (id, hour, parentTaskId = '', day = '04') => ({ id, parentTaskId, done: true, taskCompleteAt: `2026-11-${day}T${hour}:00:00+08:00` });
+require('node:test')('summary, daily and weekly reports order siblings by completion and keep each subtree contiguous', () => {
+    const tasks = [finished('A', 15), finished('A-1', 10, 'A'), finished('A-2', 11, 'A'), finished('B', 12), finished('A-3', 14, 'A'), finished('验收', 13, 'A-2')];
+    tasks.at(-1).remark = '已复核';
+    for (const preset of ['all', 'today_report', 'this_week_report', 'last_week_report']) {
+        const md = hierarchyMarkdown(tasks, { preset });
+        assert.deepEqual(taskLines(md), ['- [x] B', '- [x] A', '  - [x] A-1', '  - [x] A-2', '    - [x] 验收', '  - [x] A-3']);
+        assert.match(md, /    - \[x\] 验收\n      - 备注：已复核/);
+    }
+});
+require('node:test')('out-of-section parents are labels, not tasks, across status, date and range filters', () => {
+    const child = finished('验收', 12, '项目甲');
+    for (const preset of ['all', 'this_week_report']) {
+        const md = hierarchyMarkdown([{ id: '项目甲' }, child], { preset });
+        assert.ok(taskLines(md).includes('- [x] 验收（父任务：项目甲）'));
+        assert.ok(taskLines(md).includes('- [ ] 项目甲'));
+        assert.equal(taskLines(md).length, 2);
+    }
+    const days = [finished('项目甲', 12, '', '05'), child];
+    const md = hierarchyMarkdown(days, { groupBy: 'date' });
+    assert.match(md, /## 2026-11-04（1）\n\n- \[x\] 验收（父任务：项目甲）/);
+    assert.match(md, /## 2026-11-05（1）\n\n- \[x\] 项目甲/);
+    const range = { start: '2026-11-04', end: '2026-11-04' };
+    assert.deepEqual(taskLines(hierarchyMarkdown(days, range)), ['- [x] 验收（父任务：项目甲）']);
+    assert.doesNotMatch(hierarchyMarkdown(days, { ...range, fields: { taskName: false } }), /项目甲|验收/);
+});
+require('node:test')('planned tasks keep sibling title order and the report cap counts tasks after nesting', () => {
+    const tasks = [{ id: 'Z' }, { id: 'K' }, { id: 'C', parentTaskId: 'Z' }, { id: 'A', parentTaskId: 'Z' }];
+    assert.deepEqual(taskLines(hierarchyMarkdown(tasks)), ['- [ ] K', '- [ ] Z', '  - [ ] A', '  - [ ] C']);
+    const many = Array.from({ length: 31 }, (_, i) => ({ id: `child-${String(i).padStart(2, '0')}`, parentTaskId: 'Z' }));
+    const md = hierarchyMarkdown([...many, { id: 'Z' }], { preset: 'this_week_report' });
+    assert.match(md, /## 计划项（32）/);
+    assert.deepEqual(taskLines(md), ['- [ ] Z', ...many.slice(0, 29).map(t => `  - [ ] ${t.id}`)]);
+});
+require('node:test')('same-name parents remain distinct and overdue rows use their own section hierarchy', () => {
+    const sameName = [{ ...finished('p1', 13), content: '发布' }, { ...finished('p2', 12), content: '发布' },
+        finished('桌面版', 10, 'p1'), finished('移动版', 11, 'p2')];
+    assert.deepEqual(taskLines(hierarchyMarkdown(sameName)), ['- [x] 发布', '  - [x] 移动版', '- [x] 发布', '  - [x] 桌面版']);
+    const md = hierarchyMarkdown([{ id: '发布', completionTime: '2026-11-03' }, { id: '验收', parentTaskId: '发布', completionTime: '2026-11-01' }], { preset: 'today_report' });
+    assert.match(md, /## 计划项（2）\n\n- \[ \] 发布\n  - \[ \] 验收/);
+    assert.match(md, /## 逾期项（1）\n\n- \[ \] 验收（父任务：发布）/);
+});
 
 const modalMountedAt = source.indexOf('document.body.appendChild(state.summaryModal);');
 const firstPaintAt = source.indexOf('await new Promise((resolve) => requestAnimationFrame(resolve));');

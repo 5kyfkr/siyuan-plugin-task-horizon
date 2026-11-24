@@ -27,6 +27,29 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 async function drain() {
     for (let index = 0; index < 8; index += 1) await flush();
 }
+
+test('clearing the ICS calendar name saves the localized default', async () => {
+    const key = 'calendarIcsCalendarName';
+    const savedNames = [];
+    const store = { data: {}, flushSave: async () => { savedNames.push(store.data[key]); } };
+    let onChange;
+    vm.runInNewContext(between(
+        "        containerEl.addEventListener('change', async (e) => {",
+        "        containerEl.addEventListener('click', async (event) => {",
+    ), {
+        state: { settingsStore: store },
+        abort: new AbortController(),
+        containerEl: { addEventListener: (_, handler) => { onChange = handler; } },
+        reconcileCalendarSubscriptionPublisher() {},
+        renderSettings() {},
+    });
+    for (const value of ['  Personal calendar  ', '', '   ']) {
+        await onChange({ target: { type: 'text', value, getAttribute: () => key } });
+    }
+    const defaultName = require('../i18n/zh-CN.json')['common.taskManager'];
+    assert.deepEqual(savedNames, ['Personal calendar', defaultName, defaultName]);
+});
+
 function deferred() {
     let resolve;
     let reject;

@@ -144,8 +144,8 @@ assert.match(
 );
 assert.match(
     source,
-    /async function loadCnHolidayYearUncached\(year, options = \{\}\)[\s\S]*async function loadCnHolidayYear\(year, options = \{\}\)[\s\S]*cnHolidayInflight/,
-    'holiday year reads must share one in-flight request per year',
+    /async function loadCnHolidayYear\(year, options = \{\}\)[\s\S]*?cnHolidayInflight\.get\(key\)[\s\S]*?cnHolidayInflight\.set\(key, pending\)/,
+    'holiday year reads with the same intent must share an in-flight request',
 );
 assert.match(
     source,

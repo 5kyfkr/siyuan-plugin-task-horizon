@@ -81,21 +81,6 @@ assert.equal(
     '',
     'future festival cache entries must not be interpreted as confirmed rest days',
 );
-assert.match(
-    require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', 'calendar-view.js'), 'utf8'),
-    /localCacheUsable = !futureYear \|\| Number\(obj\?\.cacheVersion\) === CN_HOLIDAY_CACHE_VERSION;[\s\S]*localCacheUsable && data\.length/,
-    'persisted future holiday data must carry the current cache version before reuse',
-);
-assert.match(
-    require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', 'calendar-view.js'), 'utf8'),
-    /cachedVersionCurrent = cached\?\.cacheVersion === CN_HOLIDAY_CACHE_VERSION;[\s\S]*cachedUsable = !futureYear \|\| cachedVersionCurrent/,
-    'in-memory future holiday data must carry the current cache version before reuse',
-);
-assert.match(
-    require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', 'calendar-view.js'), 'utf8'),
-    /String\(cached\.checkedDay \|\| ''\) === todayKey[\s\S]*localCheckedDay === todayKey/,
-    'holiday data must be checked at most once per local calendar day',
-);
 const normalized = api.normalizeCalendarCustomHolidayOverrides({
     '2026-02-17': { type: 'rest', name: ' 春节 ' },
     '2026-02-28': { type: 'WORK', name: '' },

@@ -186,6 +186,7 @@
         'calendarGridBorderColorDark',
         'calendarShowCnHoliday',
         'calendarCnHolidayColor',
+        'calendarHolidayFetchMode',
         'calendarShowLunar',
         'calendarSideDockEnabled',
         'calendarSideDockWidth',

@@ -957,6 +957,7 @@
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         try { __tmApplyTaskCheckboxPriorityColorStyle(SettingsStore?.data?.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
         try { globalThis.__tmCalendar?.setSettingsStore?.(SettingsStore); } catch (e) {}
+        try { await globalThis.__tmCalendar?.reloadHolidayCache?.(); } catch (e) {}
         // A data refresh must not tear down the live mobile Dock on every sync.
         // Notify the host only when the synced Dock settings actually changed;
         // manual refreshes still force the existing settings propagation path.
