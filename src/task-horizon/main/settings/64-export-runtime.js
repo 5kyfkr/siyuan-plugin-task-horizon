@@ -690,6 +690,10 @@
     };
 
     function __tmResolveXlsxRuntime() {
+        const runtime = globalThis.__taskHorizonXlsxRuntime;
+        if (runtime?.utils && (typeof runtime.writeFile === 'function' || typeof runtime.writeFileXLSX === 'function')) {
+            return runtime;
+        }
         const candidates = [
             globalThis.XLSX,
             (typeof window !== 'undefined' ? window.XLSX : null),

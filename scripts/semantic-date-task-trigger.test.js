@@ -16,7 +16,7 @@ const segment = (source, from, to) => {
     return source.slice(start, end);
 };
 
-function harness() {
+function harness(DateImpl = Date) {
     const tasks = new Map(), recognized = {}, shown = [], reads = [], timers = new Map(), errors = [], detailRoots = [], focusHandlers = new Map();
     class DetailElement {
         constructor(id) { this.id = id; this.connected = true; this.__tmTaskDetailSessionId = 1; }
@@ -24,7 +24,7 @@ function harness() {
     let timerSeq = 0, loadBarrier = null;
     const state = { openToken: 1, semanticDateConfirmModal: null, semanticDateAutoApplying: false };
     const context = vm.createContext({
-        Date, Intl, Map, Set, state, Element: DetailElement,
+        Date: DateImpl, Intl, Map, Set, state, Element: DetailElement,
         SettingsStore: { data: { semanticDateAutoPromptEnabled: true, semanticDateDefaultReminderTime: '08:00' } },
         Storage: { get: (key, fallback) => fallback },
         SemanticDateRecognizedStore: {
@@ -56,6 +56,7 @@ function harness() {
         setTimeout: callback => { const id = ++timerSeq; timers.set(id, callback); return id; },
         clearTimeout: id => timers.delete(id),
     });
+    vm.runInContext(fs.readFileSync(path.join(main, '06a-duration-utils.js'), 'utf8'), context);
     vm.runInContext([
         'let __tmSemanticDatePromptActivePending = null;',
         segment(read('task-runtime/50-task-model-and-repeat-utils.js'), '    function __tmParseTaskRepeatJson', '    function __tmGetTaskRepeatWeekdayLabel'),
@@ -496,6 +497,53 @@ function harness() {
         assert.equal(edits.context.__tmNativeDocTaskContentSyncTimers.size, 0,
             entry + ': disabled recognition must not retain native task elements');
     }
+
+    let clock = new Date(2026, 10, 25, 23, 55).getTime();
+    class ClockDate extends Date {
+        constructor(...args) { super(...(args.length ? args : [clock])); }
+        static now() { return clock; }
+    }
+    const relative = harness(ClockDate);
+    relative.focus(true);
+    relative.task('relative', '10min提醒喝水', { startDate: '2026-11-20', completionTime: '2026-11-30' });
+    relative.settle('contentPatch', { taskId: 'relative', nextContent: '10min提醒喝水' });
+    await relative.flush();
+    clock += 2 * 60000;
+    relative.context.__tmQueueSemanticDateTask('relative');
+    assert.equal(relative.context.__tmSemanticDatePendingTasks.get('relative').queuedAt, new Date(2026, 10, 25, 23, 55).getTime(), 'duplicate queue events preserve the original save time');
+    clock += 3 * 60000;
+    relative.focus(false);
+    await relative.flush();
+    assert.equal(relative.shown[0][0].reminderAt, '2026-11-26 00:05', 'deferred scanning must not start the duration again');
+    relative.context.__tmCloseSemanticDateConfirmModal();
+    clock += 60000;
+    relative.context.__tmQueueSemanticDateTask('relative');
+    await relative.flush();
+    assert.equal(relative.shown.length, 1, 'the same relative reminder is not offered again as time advances');
+    relative.task('relative', '20min提醒喝水', { startDate: '2026-11-20', completionTime: '2026-11-30' });
+    relative.settle('contentPatch', { taskId: 'relative', nextContent: '20min提醒喝水' }, 'done', {}, { content: '10min提醒喝水' });
+    await relative.flush();
+    assert.equal(relative.shown.at(-1)[0].reminderAt, '2026-11-26 00:21', 'a changed duration starts from the new save time');
+    relative.context.__tmCloseSemanticDateConfirmModal();
+
+    const nativeRelative = harness(ClockDate);
+    nativeRelative.task('native-relative', '10min提醒喝水');
+    nativeRelative.focus(true);
+    Object.assign(nativeRelative.context, {
+        __tmNativeDocTaskContentSyncTimers: new Map(),
+        __TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS: 200,
+        __tmApplyLiveDocumentTaskContentPatch() {},
+    });
+    vm.runInContext(segment(native, '    function __tmScheduleNativeDocTaskContentSync', '    function __tmBindNativeDocTaskContentSync'), nativeRelative.context);
+    nativeRelative.context.__tmScheduleNativeDocTaskContentSync('native-relative', { isConnected: true });
+    await nativeRelative.flush();
+    const nativeTarget = new ClockDate(clock + 10 * 60000);
+    clock += 5 * 60000;
+    nativeRelative.context.__tmFlushNativeDocTaskContentSyncForRecognition();
+    nativeRelative.focus(false);
+    await nativeRelative.flush();
+    assert.equal(nativeRelative.shown[0][0].reminderAt, nativeRelative.context.__tmSemanticFormatDateTime(nativeTarget), 'entering the manager later must retain the native edit time');
+    nativeRelative.context.__tmCloseSemanticDateConfirmModal();
 
     assert.match(lifecycle, /requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\);[\s\S]*\n        __tmWakeSemanticDatePromptsOnPluginEnter\(\);/,
         'every manager entry must wake native document suggestions after its view mounts');

@@ -6531,5 +6531,8 @@
   "calendar.recordOverlap": "This time overlaps an existing record. Adjust the time or edit that record.",
   "calendar.recordActiveOverlap": "This time includes an active timer or a record still being saved. Finish the timer and try again.",
   "calendar.timerRunning": "Running",
-  "calendar.recordEditStale": "This record changed or is no longer available. Close and reopen it before editing."
+  "calendar.recordEditStale": "This record changed or is no longer available. Close and reopen it before editing.",
+  "task.semanticRelativeReminder": "Recognized a relative reminder; the target time is fixed from when the task text was saved.",
+  "task.semanticEnglishExpression": "Recognized an English date, time or recurrence expression.",
+  "task.semanticRelativeReminderExpired": "The reminder time has already passed. Edit the reminder expression to calculate a new time."
 }

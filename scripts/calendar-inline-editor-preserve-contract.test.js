@@ -15,8 +15,14 @@ assert.match(
 assert.match(
     source,
     /timeHubAutoSaveRequest = true;\s*try \{\s*saveButton\.click\(\);/,
-    'closing a changed date/time hub must route through the primary save handler',
+    'closing a changed date hub must route through the primary save handler',
 );
+const timeInputStart = source.indexOf('const applyScheduleTimeInput = (timeInput) => {');
+const timeInputEnd = source.indexOf('\n            const closeTimeHub', timeInputStart);
+assert.ok(timeInputStart >= 0 && timeInputEnd > timeInputStart, 'direct time input handler must remain inspectable');
+const timeInputBlock = source.slice(timeInputStart, timeInputEnd);
+assert.match(timeInputBlock, /endMs <= startMs/, 'direct time input must reject an end before the start');
+assert.match(timeInputBlock, /requestInlineEditorAutoSave\(\)/, 'direct time changes must preserve existing schedule auto-save');
 assert.match(
     source,
     /const keepPopoverOpen = timeHubAutoSaveRequest === true;\s*timeHubAutoSaveRequest = false;/,
@@ -25,12 +31,12 @@ assert.match(
 assert.match(
     source,
     /const onDocumentPointerDown = \(event\) => \{[\s\S]*timeHub\.contains\(target\)[\s\S]*closeTimeHub\(\)[\s\S]*dismiss\(\);[\s\S]*document\.addEventListener\('pointerdown', onDocumentPointerDown, true\)/,
-    'date/time hub must close on an outside pointerdown when embedded surfaces suppress click',
+    'date hub must close on an outside pointerdown when embedded surfaces suppress click',
 );
 assert.match(
     source,
     /document\.removeEventListener\('pointerdown', current\.onDocumentPointerDown, true\)/,
-    'date/time hub outside-pointer listener must be removed with the editor popover',
+    'date hub outside-pointer listener must be removed with the editor popover',
 );
 
 const saveStart = source.indexOf("pop.querySelector('[data-tm-proto-edit-action=\"save\"]')?.addEventListener('click'");

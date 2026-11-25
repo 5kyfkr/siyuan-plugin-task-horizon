@@ -41,6 +41,7 @@ const runtime = `
         return { startApplied: count('startDate'), completionApplied: count('completionTime') + count('repeatRule'), repeatApplied: count('repeatRule'),
             calendarApplied: count('calendarSchedule'), reminderApplied: count('reminder'), failures: [], appliedItems: items };
     }
+    ${read('src/task-horizon/main/06a-duration-utils.js')}
     ${segment(repeatModel, '    function __tmParseTaskRepeatJson', '    function __tmGetTaskRepeatWeekdayLabel')}
     ${segment(api, '    function __tmSemanticPad2', '    async function __tmCollectSemanticDateSuggestions')}
     ${segment(api, '    function __tmGetSemanticSuggestionWrites', '    function __tmGetSemanticSelectedWriteIds')}
@@ -82,7 +83,14 @@ const runtime = `
             document.body.appendChild(detail);
             test.detailRoots = [{ scope: options.detail === 'sidebar' ? 'checklist' : 'overlay', root: detail }];
         }
+        globalThis.__taskHorizonHostBridge.i18n = { ...globalThis.__taskHorizonHostBridge.i18n, locale: options.english ? 'en' : 'zh-CN' };
         const items = test.items();
+        if (options.expression) {
+            const item = __tmExtractSemanticTaskDateSuggestion({ id: 'expression', content: options.expression }, new Date(2026, 10, 25, 10, 20));
+            item.writes = __tmSemanticBuildSuggestionWrites(item, { hasCalendarModule: true });
+            test.preview = item;
+            items.splice(0, items.length, item);
+        }
         if (options.repeat || options.bare) {
             const item = __tmExtractSemanticTaskDateSuggestion({ id: 'meal', content: options.repeat ? '每天8点吃饭' : '8点吃饭' }, new Date(2026, 9, 24, 16));
             item.writes = __tmSemanticBuildSuggestionWrites(item, { hasCalendarModule: true });
@@ -171,6 +179,18 @@ const server = http.createServer((request, response) => {
             { taskId: 'start', selectedWriteIds: ['startDate'] },
             { taskId: 'existing', selectedWriteIds: ['reminder'] },
         ]);
+        for (const [expression, english, expected] of [
+            ['1day提醒吃饭', false, '2026-11-26 10:20'],
+            ['remind me in 10 minutes to drink water', true, '2026-11-25 10:30'],
+            ['remind me tomorrow at 3:30 PM to call Alice', true, '2026-11-26 15:30'],
+        ]) {
+            await open({ expression, english });
+            assert.equal(await input(0, 'reminder').isChecked(), true);
+            assert.equal(await input(0, 'calendarSchedule').count(), 0);
+            assert.equal(await page.evaluate(() => semanticTest.preview.reminderAt), expected);
+            assert.equal(await modal.locator('.tm-semantic-date-confirm-task').textContent().then(text => text.includes(expression)), true);
+            assert.deepEqual(await submit(), [{ taskId: 'expression', selectedWriteIds: ['completionTime', 'reminder'] }]);
+        }
         await open({ bare: true });
         assert.equal(await input(0, 'completionTime').isChecked(), true);
         assert.equal(await input(0, 'calendarSchedule').isChecked(), true);

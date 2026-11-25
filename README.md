@@ -6,15 +6,23 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.7
+
+- **Homepage:** the home button becomes a back button while the homepage is open.
+- **Semantic date recognition:** add relative reminders with minute, hour, and day units (including abbreviations), plus English date, time, and recurrence expressions when the interface language is English.
+- **Board sets:** by-document child boards inherit heading groups for document groups, all documents, and tab groups. Headings can be collapsed and used to create tasks; documents without headings stay flat. Canceling a child-board editor returns to board-set management and discards unsaved changes.
+- **Calendar:** enter schedule start and end times directly; changing the start time preserves the schedule duration. Fix CalDAV uploads.
+- **Excel export:** fix export failures.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.6
 
 - **Calendar**
   - In **Settings → Time → Schedule & display**, choose **Automatic** or **Manual** for official holiday data. In Manual mode, **Update holidays for this year and next** fetches official holidays and makeup workdays without changing personal holidays.
   - Automatic mode downloads only missing years as needed. Saved official holiday data syncs through SiYuan and remains available offline.
 - **Summaries and reports:** summaries, daily reports, and weekly reports keep subtasks under their parents. At each level, completed tasks are sorted by completion time and planned tasks by title. If a parent is outside the current group, the subtask shows a **Parent task** label.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.5
 
@@ -242,7 +250,14 @@ Check-in tasks record completion for individual dates. To permanently finish one
 
 Calendar schedules and task reminders have separate settings. Native notifications depend on the SiYuan client and its notification permissions.
 
-Automatic date recognition includes Chinese phrases such as `明天` and `下周五`, along with supported numeric date/time formats. Selecting English does not add a complete English natural-language date parser. Use the date picker for unambiguous scheduling.
+Automatic date recognition proposes changes after task text is saved and editing ends. Chinese phrases and numeric date/time formats remain available in both interface languages. English expressions are enabled only when the effective interface language is English, including **Follow SiYuan** when it resolves to English. Reload the interface after changing its language.
+
+- Relative reminders: `1day提醒吃饭`, `10min以后提醒我喝水`, `remind me in 10 minutes to drink water`, or `remind me to rest in 1.5 hours`. Chinese forms allow omitting “后” and “我”; English forms require “remind me” or “notify me”. Use one positive numeric duration with minute, hour or day units (including abbreviations and decimals). One day means 24 hours. The target time is fixed from the saved text, rounded up to the next minute, and does not move while waiting for confirmation. Expired targets must be edited and recognized again.
+- English dates and times: `today`, `tomorrow at 9am`, `tonight at 8`, `in 3 days`, `next Friday`, `May 30, 2027`, `30 Nov`, and `3:30 PM`. Bare weekdays use the nearest occurrence, including today; “this” and “next” refer to the current and following Monday-based week. A month/day without a year uses the current year, matching the Chinese rule.
+- Start, due and range expressions: `start tomorrow`, `due Friday`, `deadline 2026-11-27`, and `from Monday to Friday`.
+- English repeats: `daily at 9am`, `every 2 days`, `every weekday`, `every Monday and Friday`, `every month on the 15th`, `the last Friday of every month`, and `every year on May 1`. These use the existing repeat rules and first-date calculation; recurring reminders remain optional.
+
+Relative reminders use the existing task-reminder linkage, which can move the task's due date to the reminder date. Reminder expressions do not add calendar schedules. Compound durations, vague English expressions, time zones and minute/hour repeats are not supported; incomplete temporal expressions do not fall back to an unrelated clock time.
 
 ## Calendar and integrations
 

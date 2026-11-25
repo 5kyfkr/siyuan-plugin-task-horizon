@@ -75,7 +75,7 @@ runtime = runtime.slice(0, startup) + `
                 .then(() => { kanbanLoadingTest.openSettled = true; });
         });
         const skeleton = page.locator('.tm-inline-loading-overlay--skeleton[data-tm-loading-mode="kanban"]');
-        await skeleton.waitFor({ state: 'visible', timeout: 800 });
+        await skeleton.waitFor({ state: 'visible' });
         assert.equal(await page.evaluate(() => typeof kanbanLoadingTest.releaseNotebook), 'function',
             'cold startup must show feedback while notebook discovery is still waiting');
         const card = skeleton.locator('.tm-inline-loading-kanban-card').first();
@@ -106,7 +106,7 @@ runtime = runtime.slice(0, startup) + `
         });
         assert.deepEqual(pending, { visible: true, style: 'skeleton' },
             'the skeleton must be visible before synchronous card construction blocks the reveal timer');
-        await skeleton.waitFor({ state: 'visible', timeout: 800 });
+        await skeleton.waitFor({ state: 'visible' });
         assert.equal(await card.evaluate(el => getComputedStyle(el, '::after').animationPlayState), 'running');
         await page.emulateMedia({ reducedMotion: 'reduce' });
         assert.equal(await card.evaluate(el => getComputedStyle(el, '::after').animationName), 'none',

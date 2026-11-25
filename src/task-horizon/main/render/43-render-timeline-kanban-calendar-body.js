@@ -1715,7 +1715,8 @@
                 };
                 const renderCustomBoardGroupedTasks = (boardId, customBoardGroupMode, rootTasks, renderRootTask, compareBoardDocGroupOrder, column) => {
                     const groupHeadings = customBoardGroupMode === 'doc' && __tmCustomBoardUsesHeadingGroups(column);
-                    const hideDocTitle = groupHeadings && __tmNormalizeCustomBoardScope(column.scope).docIds.length === 1;
+                    const columnScope = __tmNormalizeCustomBoardScope(column.scope);
+                    const hideDocTitle = groupHeadings && columnScope.mode === 'docs' && columnScope.docIds.length === 1;
                     const separateCompletedRootGroup = state.showCompletedTasks === true
                         && completedTasksInlineInGroups !== true;
                     const doneSplit = separateCompletedRootGroup
@@ -1831,7 +1832,8 @@
                             ? ' ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"'
                             : '';
                         const docId = String(group.docId || '').trim();
-                        const showHeadingGroups = groupHeadings && docId && docId !== '__unknown__';
+                        const showHeadingGroups = groupHeadings && docId && docId !== '__unknown__'
+                            && (columnScope.mode === 'docs' || __tmDocHasAnyHeading(docId, group.items));
                         const createDocAction = docId && docId !== '__unknown__'
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-group-add" type="button" title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" onpointerdown="event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForDoc('${escSq(docId)}');">${__tmRenderLucideIcon('plus')}</button>`
                             : '';

@@ -948,6 +948,7 @@ const ensureTaskMainLoaded = async () => {
 };
 
 const loadScriptText = async (path, sourceName) => {
+    const isXlsxScript = path === XLSX_VENDOR_SCRIPT_PATH;
     try {
         const code = await fetchPluginResourceText(path);
         if (path === TASK_SCRIPT_PATH) {
@@ -955,7 +956,11 @@ const loadScriptText = async (path, sourceName) => {
         }
 
         const script = document.createElement("script");
-        script.textContent = code + `\n//# sourceURL=${sourceName}`;
+        // Capture SheetJS in a private CommonJS export with browser file handling.
+        const scriptCode = isXlsxScript
+            ? `((exports, module, require, window) => {\n${code}\nglobalThis.__taskHorizonXlsxRuntime = exports;\n})({});`
+            : code;
+        script.textContent = scriptCode + `\n//# sourceURL=${sourceName}`;
         document.head.appendChild(script);
         script.remove();
 
@@ -1024,6 +1029,7 @@ const ensureAiExperienceRuntime = async (requestedMode = "") => {
 
 const hasXlsxRuntime = () => {
     const candidates = [
+        globalThis.__taskHorizonXlsxRuntime,
         globalThis.XLSX,
         globalThis.exports,
         globalThis.module?.exports,
@@ -3500,6 +3506,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonFrontendCapabilityDescriptors; } catch (e) {}
         try { delete globalThis.__taskHorizonInvokeAgentAction; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}
+        try { delete globalThis.__taskHorizonXlsxRuntime; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureZipModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}

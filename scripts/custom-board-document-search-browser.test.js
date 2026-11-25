@@ -30,6 +30,7 @@ const waitForVisibleDocs = (page, expected) => page.waitForFunction((labels) => 
             }[char]));
             Object.assign(window, {
                 esc: escape,
+                escSq: value => String(value).replace(/'/g, "\\'"),
                 __tmEscAttr: escape,
                 __tmNormalizeCustomBoardGroupMode: value => value || 'doc',
                 __tmGetGroupModeLabel: value => value,
@@ -38,6 +39,7 @@ const waitForVisibleDocs = (page, expected) => page.waitForFunction((labels) => 
                 __tmRenderLucideIcon: () => '<svg viewBox="0 0 16 16" aria-hidden="true"></svg>',
                 __tmBuildTooltipAttrs: () => '',
                 __tmModalStackBind: () => () => {},
+                resolveDocIdsFromGroups: async () => ['doc-work', 'doc-life', 'doc-project'],
                 state: {
                     allDocuments: [
                         { id: 'doc-work', name: '工作安排' },
@@ -92,8 +94,37 @@ const waitForVisibleDocs = (page, expected) => page.waitForFunction((labels) => 
                 assert.equal(await life.isChecked(), true, 'filtering must preserve newly selected documents');
             }
         }
-        assert.deepEqual(errors, [], 'document search must not cause browser errors');
-        console.log('custom-board document search browser tests passed');
+        for (const width of [1000, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.evaluate(() => {
+                window.cancelSaveCalls = 0;
+                SettingsStore.save = async () => { cancelSaveCalls += 1; };
+                tmOpenCustomBoardSetManager();
+            });
+            for (const boardId of ['board-edit', '']) {
+                const before = await page.evaluate(() => JSON.stringify(SettingsStore.data.customBoardSets));
+                await page.locator(`#tmCustomBoardManager button[onclick="tmEditCustomBoard('${boardId}')"]`).click();
+                await page.waitForFunction(() => document.activeElement ===
+                    document.querySelector('#tmCustomBoardEditor [data-field="name"]'));
+                await page.locator('#tmCustomBoardEditor [data-field="name"]').fill('未保存的修改');
+                await page.locator('#tmCustomBoardEditor [data-field="scopeMode"]').selectOption('docs');
+                await page.locator('#tmCustomBoardEditor input[value="doc-life"]').check();
+                await page.locator('#tmCustomBoardEditor .tm-prompt-btn-secondary').click();
+                assert.equal(await page.locator('#tmCustomBoardManager').count(), 1,
+                    'cancelling an edit or new sub-board must return to the manager');
+                assert.equal(await page.locator('#tmCustomBoardEditor').count(), 0);
+                assert.equal(await page.locator('.tm-custom-board-modal').count(), 1,
+                    'returning to the manager must not leave stale dialogs');
+                assert.equal(await page.evaluate(() => SettingsStore.data.activeCustomBoardSetId), 'set-test');
+                assert.equal(await page.evaluate(() => JSON.stringify(SettingsStore.data.customBoardSets)), before,
+                    'cancel must discard unsaved name and document-selection changes');
+                assert.equal(await page.evaluate(() => cancelSaveCalls), 0, 'cancel must not save settings');
+            }
+            await page.locator('#tmCustomBoardManager .tm-custom-board-manager__header button').click();
+            assert.equal(await page.locator('.tm-custom-board-modal').count(), 0, 'the manager close button must still dismiss the dialog');
+        }
+        assert.deepEqual(errors, [], 'document search and editor cancellation must not cause browser errors');
+        console.log('custom-board document search and editor cancellation browser tests passed');
     } finally {
         await browser.close();
     }

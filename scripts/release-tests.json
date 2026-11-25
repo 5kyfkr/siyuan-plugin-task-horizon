@@ -9,6 +9,8 @@
     "task-attachment-document-create.test.js",
     "semantic-date-task-trigger.test.js",
     "semantic-date-repeat.test.js",
+    "semantic-date-language-relative.test.js",
+    "semantic-date-reminder-write.test.js",
     "inbox-all-tab-visibility.test.js",
     "table-responsive-resize-behavior.test.js",
     "theme-appearance-refresh-behavior.test.js",

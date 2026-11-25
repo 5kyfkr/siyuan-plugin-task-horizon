@@ -14,7 +14,8 @@
 
     function __tmCustomBoardUsesHeadingGroups(board) {
         return __tmNormalizeCustomBoardGroupMode(board?.groupMode) === 'doc'
-            && __tmNormalizeCustomBoardScope(board?.scope).mode === 'docs';
+            && (__tmNormalizeCustomBoardScope(board?.scope).mode === 'docs'
+                || SettingsStore?.data?.docH2SubgroupEnabled !== false);
     }
 
     function __tmRememberCustomBoardReturnScope() {
@@ -552,7 +553,7 @@
                     <div class="tm-custom-board-document-list">${docChecks || `<p class="tm-custom-board-manager__empty">${__tmT("task.noDocumentsAvailable")}</p>`}</div>
                 </div>
                 <div class="tm-custom-board-color-row"><span>${__tmT("task.subBoardColor")}</span><button type="button" class="tm-custom-board-color" style="--tm-custom-board-color:${esc(color || 'var(--tm-primary-color)')};" onclick="tmPickCustomBoardColor()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.subBoardColor")}"${__tmBuildTooltipAttrs(__tmT("task.subBoardColor"), { side: 'top', ariaLabel: false })}></button><span class="tm-custom-board-color-value">${esc(color || __tmT("task.defaultColor"))}</span></div>
-                <div class="tm-prompt-buttons"><button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" onclick="tmCloseCustomBoardDialog()">${__tmT("common.cancel")}</button><button type="button" class="tm-prompt-btn tm-prompt-btn-primary" onclick="tmSaveCustomBoard()">${__tmT("common.save")}</button></div>
+                <div class="tm-prompt-buttons"><button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" onclick="tmOpenCustomBoardSetManager()">${__tmT("common.cancel")}</button><button type="button" class="tm-prompt-btn tm-prompt-btn-primary" onclick="tmSaveCustomBoard()">${__tmT("common.save")}</button></div>
             </div>
         </div>`);
     }

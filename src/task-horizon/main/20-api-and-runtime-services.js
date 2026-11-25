@@ -9794,6 +9794,129 @@
         return __tmSemanticNormalizeClockTime(SettingsStore?.data?.semanticDateDefaultReminderTime || '08:00', '08:00');
     }
 
+    function __tmSemanticEnglishEnabled() {
+        return globalThis.__taskHorizonHostBridge?.i18n?.locale === 'en';
+    }
+
+    function __tmSemanticHasReminderExpression(text) {
+        return __tmSemanticHasReminderIntent(text)
+            || (__tmSemanticEnglishEnabled() && /\b(?:remind|notify)\s+me\b/i.test(String(text || '')));
+    }
+
+    function __tmSemanticExtractRelativeReminder(task, source, baseDate) {
+        const text = String(source.text || '').trim();
+        if (!__tmSemanticHasReminderExpression(text)) return null;
+        const unit = '(?:minutes?|mins?|min|hours?|hrs?|hr|h|days?|d|m|分钟|小时|天)';
+        const duration = String.raw`(\d+(?:\.\d+)?)\s*(${unit})`;
+        let match = new RegExp(String.raw`(^|[^\dA-Za-z_.+\-])${duration}\s*(?:以后|之后|后)?\s*(?:提醒|通知)\s*我?\s*(\S[\s\S]*)$`, 'i').exec(text);
+        let amount, unitText, body;
+        if (match) [, , amount, unitText, body] = match;
+        if (!match && __tmSemanticEnglishEnabled()) {
+            match = new RegExp(String.raw`\b(?:remind|notify)\s+me\s+in\s+${duration}\s+(?:to\s+)?(\S[\s\S]*)$`, 'i').exec(text);
+            if (match) [, amount, unitText, body] = match;
+            else {
+                match = new RegExp(String.raw`\b(?:remind|notify)\s+me\s+(?:to\s+)?(\S[\s\S]*?)\s+in\s+${duration}\s*[.!]?$`, 'i').exec(text);
+                if (match) [, body, amount, unitText] = match;
+            }
+        }
+        const candidate = new RegExp(String.raw`${unit}\s*(?:以后|之后|后)?\s*(?:提醒|通知)`, 'i').test(text)
+            || (__tmSemanticEnglishEnabled() && /\b(?:remind|notify)\s+me\s+(?:in\b|[\s\S]*\bin\s+[-+.\d])/i.test(text));
+        if (match) {
+            const prefix = text.slice(0, match.index);
+            if (/每(?:隔)?\s*$/.test(prefix + String(match[1] || '')) || __tmSemanticHasRepeatExpression(prefix)) return null;
+            if (/[-+]\s*$|\d\s*,\s*$/.test(prefix) || new RegExp(String.raw`\d\s*${unit}\s*$`, 'i').test(prefix)
+                || new RegExp(String.raw`^\d+(?:\.\d+)?\s*${unit}\b`, 'i').test(body)) return { blocked: true };
+        }
+        if (!match) return candidate && !__tmSemanticHasRepeatExpression(text) ? { blocked: true } : null;
+        const minutes = globalThis.__tmDuration?.parse(amount + unitText, 'minutes');
+        const base = baseDate instanceof Date ? baseDate.getTime() : Date.now();
+        const date = new Date(Math.ceil((base + Number(minutes) * 60000) / 60000) * 60000);
+        if (!body?.trim() || /^(?:我|to)$/i.test(body.trim()) || !Number.isFinite(minutes) || minutes <= 0 || Number.isNaN(date.getTime()) || date.getFullYear() > 9999) return { blocked: true };
+        const key = 'delay:' + minutes;
+        const suggestion = __tmSemanticBuildSuggestionPayload(task, source, null, {
+            date, stableKey: key, isRelative: true, reason: __tmT('task.semanticRelativeReminder'),
+        }, {
+            completionTimeInfo: { hour: date.getHours(), minute: date.getMinutes(), label: __tmSemanticFormatDateTime(date), stableKey: key },
+            reminderIntent: true,
+        });
+        if (suggestion) {
+            suggestion.relativeReminder = true;
+            suggestion.signature = 'delay-v1||' + minutes + '||' + body.trim().toLowerCase();
+            suggestion.reason = __tmT('task.semanticRelativeReminder');
+        }
+        return suggestion;
+    }
+
+    // Normalize only temporal expressions in a temporary parsing surface. The
+    // original task content is never rewritten; date/repeat calculation stays shared.
+    function __tmSemanticNormalizeEnglishSource(source, baseDate) {
+        let text = String(source.text || '');
+        const original = text;
+        if (!/[A-Za-z]/.test(text)) return source;
+        const weekdays = 'monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thu|friday|fri|saturday|sat|sunday|sun';
+        const dow = token => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(token.toLowerCase().slice(0, 3));
+        const cnDay = token => '日一二三四五六'[dow(token)];
+        const months = 'january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec';
+        const monthNumber = token => ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(token.toLowerCase().slice(0, 3)) + 1;
+        const ordinal = { first: '第一个', second: '第二个', third: '第三个', fourth: '第四个', fifth: '第五个', last: '最后一个' };
+        const temporal = /\b(?:today|tomorrow|tonight|yesterday|daily|weekly|monthly|yearly|annually|every|remind\s+me|notify\s+me|\d+(?::\d+)?\s*(?:am|pm))\b/i.test(text)
+            || new RegExp(String.raw`\b(?:${weekdays}|${months})\b|\b(?:in|after)\s+\d+\s+(?:days?|weeks?)\b`, 'i').test(text);
+        if (!__tmSemanticEnglishEnabled()) return temporal ? null : source;
+        if (/\b(?:yesterday|ago|last\s+(?:week|month|year)|half\s+an?\s+hour|a\s+couple\s+of)\b/i.test(text)
+            || /\b(?:UTC|GMT)(?:\s*[+-]\s*\d+)?\b|\b(?:PST|PDT|EST|EDT|CST|CDT)\b/.test(text)) return null;
+        let invalid = [...text.matchAll(/\b(\d{1,2}):(\d{1,2})(?!\d)/g)].some(([, h, m]) => Number(h) > 23 || Number(m) > 59);
+        text = text.replace(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/gi, (_, h, m, period) => {
+            const hour = Number(h), minute = Number(m || 0);
+            if (hour < 1 || hour > 12 || minute > 59) { invalid = true; return ''; }
+            return __tmSemanticPad2(hour % 12 + (period.toLowerCase() === 'pm' ? 12 : 0)) + ':' + __tmSemanticPad2(minute);
+        });
+        text = text.replace(new RegExp(String.raw`\b(?:the\s+)?(first|second|third|fourth|fifth|last)\s+(${weekdays})\s+of\s+every\s+month\b`, 'gi'), (_, n, day) => '每月' + ordinal[n.toLowerCase()] + '周' + cnDay(day));
+        text = text.replace(/\b(?:the\s+)?last\s+day\s+of\s+every\s+month\b/gi, '每月最后一天');
+        text = text.replace(/\bevery\s+(?:(other|\d+)\s+)?(weekdays?|workdays?|business\s+days?|weekends?|days?|weeks?|months?|years?)\b/gi, (_, count, u) => {
+            const n = count?.toLowerCase() === 'other' ? '2' : count || '';
+            const unit = /^(?:weekday|workday|business)/i.test(u) ? '工作日' : /^weekend/i.test(u) ? '周末' : ({ d: '天', w: '周', m: '月', y: '年' })[u[0].toLowerCase()];
+            return '每' + n + unit;
+        });
+        text = text.replace(new RegExp(String.raw`\bevery\s+(other\s+)?(?=(?:${weekdays})\b)`, 'gi'), (_, other) => other ? '每2周' : '每周');
+        text = text.replace(/\b(daily|weekly|monthly|yearly|annually)\b/gi, word => ({ daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', annually: '每年' })[word.toLowerCase()]);
+        text = text.replace(/(每\d*(?:天|周|月|年|工作日))\s+(?:on\s+)?(?:the\s+)?/gi, '$1');
+        text = text.replace(new RegExp(String.raw`(每\d*月)(first|second|third|fourth|fifth|last)\s+(${weekdays})\b`, 'gi'), (_, prefix, n, day) => prefix + ordinal[n.toLowerCase()] + '周' + cnDay(day));
+        text = text.replace(/(每\d*月)last\s+day\b/gi, '$1最后一天');
+        text = text.replace(/(每\d*月)(\d{1,2})(?:st|nd|rd|th)?((?:\s*(?:,|and)\s*\d{1,2}(?:st|nd|rd|th)?)*)\b/gi, (_, prefix, first, rest) => prefix + [first, ...rest.matchAll(/\d+/g)].map(n => String(n)).join('、') + '号');
+        text = text.replace(new RegExp(String.raw`(每\d*周)(${weekdays})((?:\s*(?:,|and|to|through|-)\s*(?:${weekdays}))*)\b`, 'gi'), (_, prefix, first, rest) => {
+            const days = [first, ...rest.matchAll(new RegExp(weekdays, 'gi'))].map(day => cnDay(String(day)));
+            return prefix + days.join(/\b(?:to|through)\b|-/.test(rest) ? '至' : '');
+        });
+        const monthDate = (_, month, day, year) => {
+            const m = monthNumber(month), d = Number(day);
+            const y = Number(year || (/每\d*年/.test(text) ? 2000 : __tmSemanticStartOfDay(baseDate).getFullYear()));
+            const date = new Date(y, m - 1, d);
+            if (d < 1 || date.getMonth() !== m - 1 || date.getFullYear() !== y) invalid = true;
+            return (year ? year + '年' : '') + m + '月' + d + '日';
+        };
+        text = text.replace(new RegExp(String.raw`\b(${months})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b`, 'gi'), monthDate);
+        text = text.replace(new RegExp(String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(${months})(?:,?\s+(\d{4}))?\b`, 'gi'), (_, day, month, year) => monthDate(_, month, day, year));
+        text = text.replace(/\bthe\s+day\s+after\s+tomorrow\b/gi, '后天').replace(/\btomorrow\b/gi, '明天').replace(/\btoday\b/gi, '今天').replace(/\btonight\b/gi, '今晚');
+        text = text.replace(/\b(?:in|after)\s+(\d+)\s+(days?|weeks?)\b/gi, (_, n, u) => n + (/^week/i.test(u) ? '周后' : '天后'));
+        text = text.replace(new RegExp(String.raw`\b(?:(this|next)\s+)?(${weekdays})\b`, 'gi'), (_, scope, day) => {
+            const date = __tmSemanticStartOfDay(baseDate), target = dow(day);
+            const offset = scope ? -((date.getDay() + 6) % 7) + (target + 6) % 7 + (scope.toLowerCase() === 'next' ? 7 : 0) : (target - date.getDay() + 7) % 7;
+            date.setDate(date.getDate() + offset);
+            return __tmSemanticFormatDateKey(date);
+        });
+        text = text.replace(/\b(?:this\s+)?(morning|afternoon|evening)\b/gi, (_, p) => ({ morning: '上午', afternoon: '下午', evening: '晚上' })[p.toLowerCase()]);
+        text = text.replace(/\bat\s+(\d{1,2})(?![\d:])\b/gi, '$1点').replace(/\bat\s+(?=\d{1,2}:)/gi, '');
+        text = text.replace(/\b(?:remind|notify)\s+me\s*(?:to\s+)?/gi, '提醒我');
+        const dateAhead = String.raw`(?=\d{4}[-/年]|\d{1,2}[月/]|今天|明天|今晚|后天)`;
+        text = text.replace(new RegExp(String.raw`\b(?:start(?:s|ing)?(?:\s+on)?|from)\s+${dateAhead}`, 'gi'), '开始于');
+        text = text.replace(new RegExp(String.raw`\b(?:due(?:\s+(?:on|by))?|deadline(?:\s+(?:is|on))?|ddl|by)\s+${dateAhead}`, 'gi'), '截止');
+        text = text.replace(new RegExp(String.raw`\b(?:to|through)\s+${dateAhead}`, 'gi'), '至');
+        if (invalid || /\b(?:every|until|yesterday|ago|am|pm)\b/i.test(text)
+            || /\b(?:next|this)\s+(?:week|month|year)\b/i.test(text)
+            || /\b(?:in|after)\s+(?:[-+.\d]+\s*(?:minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|months?|years?)|an?|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(text)) return null;
+        return text === original ? source : { ...source, text, english: true, originalText: original };
+    }
+
     function __tmSemanticHasReminderIntent(text) {
         return /(提醒|通知)/.test(String(text || ''));
     }
@@ -10226,8 +10349,9 @@
         const timeThen = '(?:\\d{1,2}\\s*[:：]\\s*\\d{1,2}|(?:\\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\\s*点\\s*(?:半|一刻|三刻|整|\\d{1,2}\\s*分?)?)?';
         const startBeforeKeyword = /(开始于|开始日期|开始时间|开始|起始|启动|开工时间|开工|从|自)\s*$/;
         const startAfterKeyword = new RegExp(`^\\s*${timeThen}\\s*(开始|起)`);
-        const completionBeforeKeyword = /(截止到|截止日期|截止时间|截止|到期|最晚|期限|完成于|交付|ddl|deadline|due)\s*$/i;
-        const completionAfterKeyword = new RegExp(`^\\s*${timeThen}\\s*(截止到|截止|到期|完成|交付|之前|前|deadline|due)`, 'i');
+        const englishDue = __tmSemanticEnglishEnabled() ? '|\\bddl|\\bdeadline|\\bdue' : '';
+        const completionBeforeKeyword = new RegExp('(截止到|截止日期|截止时间|截止|到期|最晚|期限|完成于|交付' + englishDue + ')\\s*$', 'i');
+        const completionAfterKeyword = new RegExp(`^\\s*${timeThen}\\s*(截止到|截止|到期|完成|交付|之前|前${englishDue})`, 'i');
         let startInfo = null;
         let completionInfo = null;
         dates.forEach((item, index) => {
@@ -10363,7 +10487,8 @@
     }
 
     function __tmSemanticHasRepeatExpression(text) {
-        return /每(?:隔|个|天|日|周|星期|礼拜|月|年|工作日|小时|分钟|[\d零〇一二两三四五六七八九十百千])|隔天|隔日/.test(String(text || ''));
+        return /每(?:隔|个|天|日|周|星期|礼拜|月|年|工作日|小时|分钟|[\d零〇一二两三四五六七八九十百千])|隔天|隔日/.test(String(text || ''))
+            || (__tmSemanticEnglishEnabled() && /\b(?:every|daily|weekly|monthly|yearly|annually)\b/i.test(String(text || '')));
     }
 
     function __tmSemanticRepeatNumber(value) {
@@ -10479,17 +10604,30 @@
         };
     }
 
-    function __tmExtractSemanticTaskDateSuggestion(task, baseDate) {
+    function __tmExtractSemanticTaskDateSuggestion(task, baseDate, options = {}) {
         const target = (task && typeof task === 'object') ? task : null;
         const sources = [
             { key: 'content', label: __tmT("task.taskContent"), text: String(target?.content || '').trim() },
         ].filter((item) => item.text);
-        for (const source of sources) {
+        for (const rawSource of sources) {
+            const relative = __tmSemanticExtractRelativeReminder(target, rawSource, options.relativeBaseDate || baseDate);
+            if (relative) return relative.blocked ? null : relative;
+            const source = __tmSemanticNormalizeEnglishSource(rawSource, baseDate);
+            if (!source) return null;
+            const finish = (payload) => {
+                if (payload && source.english) {
+                    payload.signature = 'en-v1||' + source.originalText.trim().toLowerCase().replace(/\s+/g, ' ');
+                    payload.isRelativeDate = true;
+                    payload.reason = __tmT('task.semanticEnglishExpression');
+                    if (payload.repeatRule && typeof __tmGetTaskRepeatSummary === 'function') payload.repeatSummary = __tmGetTaskRepeatSummary(payload.repeatRule);
+                }
+                return payload;
+            };
             if (__tmSemanticHasRepeatExpression(source.text)) {
-                return __tmSemanticExtractRepeatSuggestion(target, source, baseDate);
+                return finish(__tmSemanticExtractRepeatSuggestion(target, source, baseDate));
             }
             const ranged = __tmSemanticExtractStartEndSuggestion(target, source, baseDate);
-            if (ranged) return ranged;
+            if (ranged) return finish(ranged);
             const dateInfo = __tmSemanticExtractDateInfo(source.text, baseDate);
             if (!dateInfo) continue;
             const timeInfo = __tmSemanticExtractTimeInfo(source.text);
@@ -10497,7 +10635,7 @@
                 completionTimeInfo: timeInfo,
                 reminderIntent: __tmSemanticHasReminderIntent(source.text),
             });
-            if (payload) return payload;
+            if (payload) return finish(payload);
         }
         return null;
     }
@@ -10528,8 +10666,11 @@
             const task = list[index];
             if (truncated) break;
             const taskId = String(task?.id || '').trim();
-            if (taskId && task && !task.done && (__tmSemanticHasRepeatExpression(task.content) || !String(task?.startDate || task?.start_date || '').trim() || !String(task?.completionTime || task?.completion_time || '').trim())) {
-                const suggestion = __tmExtractSemanticTaskDateSuggestion(task, now);
+            if (taskId && task && !task.done && (__tmSemanticHasRepeatExpression(task.content) || __tmSemanticHasReminderExpression(task.content) || !String(task?.startDate || task?.start_date || '').trim() || !String(task?.completionTime || task?.completion_time || '').trim())) {
+                const referenceTime = opts.referenceTimes?.get?.(taskId);
+                const suggestion = __tmExtractSemanticTaskDateSuggestion(task, now, {
+                    relativeBaseDate: referenceTime ? new Date(referenceTime) : now,
+                });
                 if (suggestion) {
                     const recognized = recognizedMap[taskId];
                     const prevSignature = String(recognized?.signature || recognized || '').trim();
@@ -10684,6 +10825,10 @@
             const wantsCalendar = selectedWriteIds.has('calendarSchedule');
             const wantsReminder = selectedWriteIds.has('reminder') && String(item?.reminderAt || '').trim();
             const wantsRepeat = selectedWriteIds.has('repeatRule') && item.repeatRule?.enabled;
+            if (wantsReminder && item.relativeReminder && __tmReminderToDateSafe(item.reminderAt)?.getTime() <= Date.now()) {
+                failures.push(__tmT('task.semanticRelativeReminderExpired'));
+                continue;
+            }
             let repeatSucceeded = false;
             let itemApplied = false;
             if (wantsRepeat) {
@@ -11052,12 +11197,17 @@
         return true;
     }
 
-    function __tmQueueSemanticDateTask(taskId, fallbackTask = null) {
+    function __tmQueueSemanticDateTask(taskId, fallbackTask = null, referenceTime = Date.now()) {
         const id = String(taskId || '').trim();
         if (!id || !__tmIsSemanticDateAutoPromptEnabled()) return;
+        const task = __tmPrepareTaskForSemanticScan(globalThis.__tmTaskBoundary?.getTask?.(id) || fallbackTask);
+        const content = String(task?.content || '').trim();
+        const previous = __tmSemanticDatePendingTasks.get(id) || __tmSemanticDatePromptActivePending?.get(id)?.pending;
         __tmSemanticDatePendingTasks.set(id, {
             token: Number(state.openToken) || 0,
             task: fallbackTask,
+            content,
+            queuedAt: previous?.content === content ? Math.min(previous.queuedAt, referenceTime) : referenceTime,
         });
         document.addEventListener('focusout', __tmScheduleSemanticDatePrompt, true);
         __tmScheduleSemanticDatePrompt();
@@ -11130,6 +11280,7 @@
             const { items, interrupted } = await __tmCollectSemanticDateSuggestions(
                 Array.from(batch.values(), ({ task }) => task), {
                     maxSuggestions: __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE,
+                    referenceTimes: new Map(Array.from(batch, ([taskId, { pending }]) => [taskId, pending.queuedAt])),
                     shouldStop: () => !isCurrent(),
                 },
             );

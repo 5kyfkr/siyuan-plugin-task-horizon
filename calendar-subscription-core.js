@@ -650,8 +650,12 @@
             if (!next.namespace) next.namespace = identity();
             store.data.calendarCaldav = next;
             reconcile();
-            if (typeof store.saveNow === 'function') await store.saveNow();
-            else if (typeof store.flushSave === 'function') { store.saveDirty = true; await store.flushSave(); }
+            // Both immediate save methods skip a clean store.
+            store.saveDirty = true;
+            try { if (store.saveTimer) clearTimeout(store.saveTimer); } catch (e) {}
+            store.saveTimer = null;
+            if (typeof store.flushSave === 'function') await store.flushSave();
+            else if (typeof store.saveNow === 'function') await store.saveNow();
             else await store.save();
             runtime.host?.changed?.();
         }
@@ -697,7 +701,7 @@
         runtime.host = runtime.root = null;
         runtime.signature = '';
     }
-    scope.__tmCalendarCaldav = { configure, reconcile, markDirty, automatic, renderSettings, bind, cleanup,
+    scope.__tmCalendarCaldav = { configure, reconcile, markDirty, scheduleContentCheck: schedule, automatic, renderSettings, bind, cleanup,
         async uploadNow(options = {}) {
             try {
                 const counts = await execute(false);

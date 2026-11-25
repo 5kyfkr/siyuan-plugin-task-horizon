@@ -780,7 +780,7 @@
                                     onmouseleave="tmTopbarManagerIconPressEnd(event)"
                                     ${__tmBuildTooltipAttrs(managerIconTooltip, { side: 'bottom' })}
                                 >${__tmRenderTaskHorizonTopbarIcon(16)}</button>
-                                ${`<button type="button" class="tm-btn tm-btn-info tm-homepage-entry-btn bc-btn bc-btn--sm ${state.homepageOpen ? 'is-active' : ''}" onclick="tmToggleHomepage(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.homepageOpen ? __tmT("task.backToWorkspace") : __tmT("task.homeOverview"), { side: 'bottom' })}>${__tmRenderHomepageEntryIcon(15)}</button>`}
+                                ${`<button type="button" class="tm-btn tm-btn-info tm-homepage-entry-btn bc-btn bc-btn--sm ${state.homepageOpen ? 'is-active' : ''}" onclick="tmToggleHomepage(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.homepageOpen ? __tmT("task.backToWorkspace") : __tmT("task.homeOverview"), { side: 'bottom' })}>${state.homepageOpen ? __tmPhosphorBoldSvg('arrow-u-up-right', { size: 15 }) : __tmRenderHomepageEntryIcon(15)}</button>`}
                                 ${comboBoardMode ? __tmRenderCustomBoardSetTopbar() : ''}
                                 ${(useCompactTopbarBrand || comboBoardMode) ? '' : `<span class="tm-manager-title-label" onclick="tmHandleManagerTitleClick(event)">${__tmT("common.taskManager")}</span>`}
                             </div>

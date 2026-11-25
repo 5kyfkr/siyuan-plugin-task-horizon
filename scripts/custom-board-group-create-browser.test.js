@@ -169,6 +169,64 @@ runtime = runtime.slice(0, startup) + `
         });
         assert.equal(ordinaryScopePlan.needH2, false, 'document-group scopes must not add unnecessary heading reads');
 
+        const scopedHeadingPlan = await page.evaluate(() => {
+            customBoardTest.SettingsStore.data.docH2SubgroupEnabled = true;
+            const plainDocId = '20261107000000-ccccccc';
+            const plainTask = { id: 'plain-doc-task', root_id: plainDocId, content: '无标题文档中的任务', done: false, children: [] };
+            customBoardTest.state.taskTree.push({ id: plainDocId, name: '无标题文档', tasks: [plainTask] });
+            customBoardTest.state.allDocuments = customBoardTest.state.taskTree.slice();
+            __tmTaskStore.acceptAuthoritative([plainTask], { docIds: [plainDocId], replaceDocuments: true, replaceStructure: true });
+            window.plainColumn = { id: 'plain', name: '无标题', groupMode: 'doc', scope: { mode: 'groups', groupIds: ['group-a'] }, tasks: [plainTask] };
+            window.scopedHeadingColumns = [
+                testColumns[0],
+                { ...testColumns[0], id: 'all', scope: { mode: 'all' } },
+                { ...testColumns[0], id: 'tab-group', scope: { mode: 'tabGroup', groupId: 'group-a', tabGroupId: 'tab-a' } },
+            ];
+            customBoardTest.SettingsStore.data.customBoardSets[0].boards = scopedHeadingColumns;
+            return customBoardTest.plan({ viewMode: 'comboBoard', colOrder: [] });
+        });
+        assert.equal(scopedHeadingPlan.needH2, true,
+            'document grouping must load headings for group, all-document and tab-group scopes when heading subgroups are enabled');
+        assert.equal(scopedHeadingPlan.docHeadingSubgroupActive, true,
+            'heading data must be ready before committing these scopes');
+        for (const width of [1100, 390]) {
+            await page.setViewportSize({ width, height: 850 });
+            await page.evaluate(() => customBoardTest.mount([...scopedHeadingColumns, plainColumn]));
+            const plain = page.locator('[data-col-key="custom:plain"]');
+            assert.equal(await plain.locator('.tm-kanban-group-title[data-tm-kb-drop-kind="doc"]').count(), 1);
+            assert.equal(await plain.locator('[data-group-key*=":h2:"]').count(), 0,
+                'a document with no headings must keep its flat task group, like the ordinary board');
+            assert.equal(await plain.locator('[data-id="plain-doc-task"]').count(), 1);
+            for (const id of ['groups', 'all', 'tab-group']) {
+                const column = page.locator('[data-col-key="custom:' + id + '"]');
+                assert.equal(await column.locator('.tm-kanban-group-title[data-tm-kb-drop-kind="doc"]').count(), 2,
+                    id + ' scope must retain its document groups');
+                assert.equal(await column.locator('.tm-kanban-group-title[data-group-key*="\:h2\:"]').count(), 4,
+                    id + ' scope must show heading subgroups under each document');
+                const heading = column.locator('[data-group-key*="' + ids.headingB + '"]');
+                await heading.locator('.tm-kanban-group-add').click();
+                assert.deepEqual(await page.evaluate(() => createCalls.at(-1)), { docId: ids.docA, headingId: ids.headingB });
+                await heading.click();
+                assert.equal(await heading.getAttribute('aria-expanded'), 'false');
+                assert.equal(await heading.evaluate(row => {
+                    const items = row.closest('.tm-kanban-group')?.querySelector('[data-tm-kanban-group-items]');
+                    return !!items && (items.hidden || getComputedStyle(items).display === 'none');
+                }), true, 'heading subgroups must remain independently collapsible');
+                await heading.click();
+                assert.equal(await column.locator('[data-id="child"]').count(), 1,
+                    'heading grouping must not duplicate child tasks');
+            }
+        }
+
+        const disabledHeadingPlan = await page.evaluate(() => {
+            customBoardTest.SettingsStore.data.docH2SubgroupEnabled = false;
+            customBoardTest.mount(scopedHeadingColumns);
+            return customBoardTest.plan({ viewMode: 'comboBoard', colOrder: [] });
+        });
+        assert.equal(disabledHeadingPlan.needH2, false, 'disabling heading subgroups must avoid heading reads for these scopes');
+        assert.equal(await page.locator('.tm-kanban-group-title[data-group-key*=":h2:"]').count(), 0,
+            'disabling heading subgroups must restore flat document groups across these scopes');
+
         for (const width of [1100, 390]) {
             await page.setViewportSize({ width, height: 850 });
             const initialCount = await page.evaluate(() => {

@@ -297,6 +297,40 @@ test('CalDAV snapshot rejects data that changed during collection', async () => 
     await assert.rejects(host.collect(run), error => error.code === 'changed');
 });
 
+test('shared settings preserve the active CalDAV target without blocking ICS or idle CalDAV settings refresh', async () => {
+    const sharedTarget = { enabled: true, calendarUrl: '' };
+    const h = harness({ fetch: (url, init, next) => url === '/api/file/getFile'
+        ? { ...response(), text: async () => JSON.stringify({ calendarCaldav: sharedTarget, calendarIcsCalendarName: 'Synced calendar' }) }
+        : next(url, init) });
+    const activeTarget = { enabled: true, calendarUrl: 'https://calendar.example.test/calendars/current/' };
+    const data = h.state.settingsStore.data;
+    data.calendarCaldav = activeTarget;
+    let running = true;
+    h.context.__tmCalendarCaldav = { isRunning: () => running, reconcile() {}, getStatus: () => ({}) };
+    const run = { check() {}, wait: (phase, operation) => operation() };
+    await h.context.refreshCalendarSubscriptionSharedSettings(run);
+    assert.equal(data.calendarCaldav, activeTarget);
+    assert.equal(h.settings.icsCalendarName, 'Synced calendar');
+    running = false;
+    await h.context.refreshCalendarSubscriptionSharedSettings(run);
+    assert.equal(data.calendarCaldav.calendarUrl, sharedTarget.calendarUrl);
+});
+
+test('sync completion and task-list repaints recheck CalDAV without invalidating it', () => {
+    const h = harness({ settings: { icsEnabled: false, icsIncludeTaskDates: true } });
+    h.state.settingsStore.data.calendarCaldav = { enabled: true };
+    const calls = [];
+    h.context.__tmCalendarCaldav = {
+        scheduleContentCheck: () => calls.push('recheck'),
+        markDirty: (source) => calls.push(source),
+    };
+    h.bind();
+    h.sync();
+    h.dispatch('tm:filtered-tasks-updated');
+    h.dispatch('tm:calendar-schedule-updated');
+    assert.deepEqual(calls, ['recheck', 'recheck', 'schedule-updated']);
+});
+
 test('a pending settings response times out, aborts its request and cannot affect a later publication', async () => {
     const lateBody = deferred();
     let first = true;

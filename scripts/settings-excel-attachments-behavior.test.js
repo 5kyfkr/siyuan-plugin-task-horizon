@@ -362,6 +362,60 @@ test('every task retains one row regardless of attachment count', async () => {
     assert.match(h.messages.at(-1).message, /2 条任务/);
 });
 
+test('lazy XLSX export works with read-only CommonJS exports in the host window', async () => {
+    const h = fixture([task(1)]);
+    const hostExports = Object.freeze({});
+    const hostModule = { exports: hostExports };
+    const windowXlsx = {};
+    const consoleErrors = [];
+    const xlsxSource = read('src/vendor/xlsx.full.min.js');
+    const source = read('index.js');
+    const loaderStart = source.indexOf('const loadScriptText =');
+    const loaderEnd = source.indexOf('const loadStyleText =', loaderStart);
+    const registerLoader = source.match(/globalThis\.__taskHorizonEnsureXlsxModuleLoaded = [^\r\n]+/)[0];
+    let loadCount = 0;
+    Object.assign(h.context, {
+        console: { error: (...args) => consoleErrors.push(args) },
+        require,
+        exports: hostExports,
+        module: hostModule,
+        XLSX: windowXlsx,
+        fetchPluginResourceText: async (filename) => {
+            assert.equal(filename, '/src/vendor/xlsx.full.min.js');
+            loadCount += 1;
+            return xlsxSource;
+        },
+        releasePluginResourceText() {},
+    });
+    h.context.document.head = {
+        appendChild(script) { vm.runInContext(script.textContent, h.context); },
+    };
+    vm.runInContext(`
+        Object.assign(globalThis, window);
+        window = globalThis;
+        const TASK_SCRIPT_PATH = '/task.js';
+        const XLSX_VENDOR_SCRIPT_PATH = '/src/vendor/xlsx.full.min.js';
+        const __tmDeferredScriptLoaders = new Map();
+        ${source.slice(loaderStart, loaderEnd)}
+        ${registerLoader}
+    `, h.context);
+    let report;
+    h.context.saveAs = (blob, filename) => { report = { blob, filename }; };
+    await h.run();
+    assert.equal(loadCount, 1);
+    assert.deepEqual(consoleErrors, []);
+    assert.ok(report, `expected an XLSX download, got ${JSON.stringify(h.messages)}`);
+    assert.match(report.filename, /\.xlsx$/);
+    const workbook = XLSX.read(await report.blob.arrayBuffer());
+    assert.deepEqual(workbook.SheetNames, ['任务导出']);
+    assert.equal(workbook.Sheets['任务导出'].D2.v, '任务 1');
+    assert.strictEqual(h.context.XLSX, windowXlsx);
+    assert.strictEqual(h.context.exports, hostExports);
+    assert.strictEqual(h.context.module.exports, hostExports);
+    await h.run();
+    assert.equal(loadCount, 1, 'subsequent exports reuse the initialized XLSX runtime');
+});
+
 test('vendored ZIP loads in a browser global and native bridge reads files without copying folders', { skip: process.platform !== 'win32' }, async (t) => {
     const browser = vm.createContext({ setTimeout, clearTimeout, Uint8Array, ArrayBuffer });
     vm.runInContext(read('src/vendor/jszip.min.js'), browser);

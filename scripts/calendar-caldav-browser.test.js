@@ -69,7 +69,15 @@ const server = http.createServer(async (req, res) => {
         await page.evaluate(() => {
             window.store = { data: { calendarIcsEnabled: false, calendarCaldav: { enabled: true, url: `${location.origin}/dav/`,
                 username: 'fixture-user', password: 'fixture-password', calendarUrl: `${location.origin}/calendars/main/`, namespace: 'fixture-owner', mode: 'manual' } },
-                save: async () => {} };
+                saveDirty: false,
+                async saveNow() { if (this.saveDirty) await this.flushSave(); },
+                async flushSave() {
+                    if (!this.saveDirty) return;
+                    window.diskCaldav = structuredClone(this.data.calendarCaldav);
+                    this.saveDirty = false;
+                },
+            };
+            window.diskCaldav = structuredClone(store.data.calendarCaldav);
             window.events = [
                 { uidSeed: 'task-date:a', source: 'task', title: '全天任务', allDay: true, startDate: '2026-11-03', endDate: '2026-11-04' },
                 { uidSeed: 'schedule:b:100', caldavKey: 'schedule:b:single', source: 'schedule', title: '会议', description: '中文备注\n第二行', startAt: Date.UTC(2026, 10, 3, 1), endAt: Date.UTC(2026, 10, 3, 2), alarm: { trigger: '-PT15M' } },
@@ -154,17 +162,43 @@ const server = http.createServer(async (req, res) => {
             document.body.innerHTML = __tmCalendarCaldav.renderSettings(store);
             window.binding = new AbortController();
             __tmCalendarCaldav.bind(document.body, store, binding.signal);
+            store.saveTimer = setTimeout(() => { void store.flushSave(); }, 60000);
         });
         assert.equal(await page.locator('[data-tm-caldav-field="mode"]').inputValue(), 'manual');
         assert.equal(await page.locator('[data-tm-caldav-field="password"]').getAttribute('type'), 'password');
         await page.locator('[data-tm-caldav-field="url"]').fill(`${new URL(page.url()).origin}/dav/`);
         await page.locator('[data-tm-caldav-field="url"]').dispatchEvent('change');
         assert.equal(await page.evaluate(() => store.data.calendarCaldav.calendarUrl), '', 'changing a connection clears the old target');
+        assert.equal(await page.evaluate(() => diskCaldav.calendarUrl), '', 'a clean settings store must persist the cleared target');
+        assert.equal(await page.evaluate(() => store.saveTimer), null, 'immediate persistence clears the pending debounce');
         await page.locator('[data-tm-caldav-action="discover"]').click();
         await page.waitForFunction(() => store.data.calendarCaldav.calendarUrl.endsWith('/main/'));
         assert.equal(await page.locator('[data-tm-caldav-field="calendarUrl"]').inputValue(), discovered[0].url);
+        assert.equal(await page.evaluate(() => diskCaldav.calendarUrl), discovered[0].url, 'the discovered target is persisted');
         await page.locator('[data-tm-caldav-field="mode"]').selectOption('auto');
+        assert.equal(await page.evaluate(() => diskCaldav.mode), 'auto', 'automatic mode is persisted');
+        await page.evaluate(() => {
+            store.data.calendarCaldav = structuredClone(diskCaldav);
+            __tmCalendarCaldav.reconcile();
+        });
         assert.equal(await page.evaluate(() => __tmCalendarCaldav.automatic()), true);
+        await page.evaluate(() => {
+            window.rechecks = 0;
+            host.collect = () => {
+                const snapshot = { events, calendarName: 'Fixture' };
+                if (++rechecks > 1) return snapshot;
+                return new Promise(resolve => { window.releaseSource = () => resolve(snapshot); });
+            };
+            window.pendingUpload = upload();
+        });
+        await page.waitForFunction(() => rechecks === 1);
+        await page.evaluate(() => {
+            __tmCalendarCaldav.scheduleContentCheck();
+            __tmCalendarCaldav.scheduleContentCheck();
+            releaseSource();
+        });
+        assert.deepEqual(await page.evaluate(() => pendingUpload), { created: 0, updated: 0, deleted: 0, unchanged: 1 });
+        await page.waitForFunction(() => rechecks === 2 && !__tmCalendarCaldav.isRunning());
         await page.evaluate(() => { __tmCalendarCaldav.cleanup(); });
         assert.equal(await page.evaluate(() => __tmCalendarCaldav.automatic()), false);
         assert.deepEqual(errors, []);

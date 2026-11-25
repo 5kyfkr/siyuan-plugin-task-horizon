@@ -6531,5 +6531,8 @@
   "calendar.recordOverlap": "该时段与已有记录重叠，请调整时间或编辑已有记录",
   "calendar.recordActiveOverlap": "该时段包含正在计时或尚未完成保存的记录，请结束计时并稍后重试",
   "calendar.timerRunning": "计时中",
-  "calendar.recordEditStale": "记录已发生变化或不存在，请关闭后重新打开再修改"
+  "calendar.recordEditStale": "记录已发生变化或不存在，请关闭后重新打开再修改",
+  "task.semanticRelativeReminder": "识别到相对提醒；提醒时间以本次任务文本保存时间为基准固定。",
+  "task.semanticEnglishExpression": "识别到英文日期、时间或循环表达。",
+  "task.semanticRelativeReminderExpired": "提醒时间已过，请编辑提醒表达后重新识别。"
 }

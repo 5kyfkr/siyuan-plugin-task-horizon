@@ -2853,7 +2853,10 @@
             try { clearTimeout(previous.timer); } catch (e) {}
         }
         const delayMs = opts.immediate === true ? 0 : __TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS;
-        const entry = { timer: null, taskItem, recognize: opts.recognize === true };
+        const entry = {
+            timer: null, taskItem, recognize: opts.recognize === true,
+            queuedAt: opts.preserveReferenceTime === true && previous ? previous.queuedAt : Date.now(),
+        };
         const isCurrent = () => __tmNativeDocTaskContentSyncTimers.get(tid) === entry;
         entry.timer = setTimeout(async () => {
             entry.timer = null;
@@ -2877,7 +2880,7 @@
                     });
                     if (livePatch) fallbackTask = { ...fallbackTask, ...livePatch };
                 }
-                __tmQueueSemanticDateTask(tid, fallbackTask);
+                __tmQueueSemanticDateTask(tid, fallbackTask, entry.queuedAt);
             } catch (e) {}
             finally {
                 // Enter/caret movement within the editor need not blur each
@@ -2896,7 +2899,7 @@
         if (!__tmIsSemanticDateAutoPromptEnabled()) return;
         __tmNativeDocTaskContentSyncTimers.forEach((entry, taskId) => {
             if (entry.recognize) return;
-            __tmScheduleNativeDocTaskContentSync(taskId, entry.taskItem, { immediate: true, recognize: true });
+            __tmScheduleNativeDocTaskContentSync(taskId, entry.taskItem, { immediate: true, recognize: true, preserveReferenceTime: true });
         });
     }
 
@@ -2920,6 +2923,7 @@
                 __tmScheduleNativeDocTaskContentSync(binding.taskId, binding.taskItem, {
                     immediate: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
                     recognize: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
+                    preserveReferenceTime: event.type === 'focusout',
                 });
             }
             if (event.type === 'focusout' && inNativeEditor) __tmFlushNativeDocTaskContentSyncForRecognition();

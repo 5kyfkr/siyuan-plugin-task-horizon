@@ -47,7 +47,7 @@ function createHarness(overrides = {}, options = {}) {
         return true;
     };
     const context = vm.createContext({
-        Date,
+        Date: options.Date || Date,
         SettingsStore: { data: { semanticDateDefaultReminderTime: options.defaultTime || '08:00' } },
         __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK: 'followTaskRepeat',
         __tmTaskBoundary: { getTask: (taskId) => tasks.get(taskId) },
@@ -73,8 +73,9 @@ function createHarness(overrides = {}, options = {}) {
             },
         },
     });
+    vm.runInContext(fs.readFileSync(path.join(mainRoot, '06a-duration-utils.js'), 'utf8'), context);
     vm.runInContext(runtime, context);
-    const suggestion = context.__tmExtractSemanticTaskDateSuggestion(task, new Date(2026, 8, 10, 10));
+    const suggestion = context.__tmExtractSemanticTaskDateSuggestion(task, options.baseDate || new Date(2026, 8, 10, 10));
     assert.ok(suggestion);
     suggestion.writes = context.__tmSemanticBuildSuggestionWrites(suggestion, {});
     return {
@@ -161,6 +162,28 @@ async function assertReminderWrite(harness, expectedTime = '08:00') {
     assert.equal(bothResult.reminderApplied, 1);
     assert.equal(both.reminders[0].startDate, '2026-09-11');
     assert.equal(both.writes.length, 1, 'a selected deadline must not be rewritten by the reminder bridge');
+
+    let clock = new Date(2026, 10, 25, 23, 55).getTime();
+    class ClockDate extends Date {
+        constructor(...args) { super(...(args.length ? args : [clock])); }
+        static now() { return clock; }
+    }
+    const relative = createHarness({ content: '10min提醒喝水', completionTime: '2026-11-30' }, { Date: ClockDate, baseDate: new ClockDate() });
+    assert.equal(relative.suggestion.reminderAt, '2026-11-26 00:05');
+    clock += 5 * 60000;
+    const relativeResult = await relative.apply(['reminder']);
+    assert.equal(relativeResult.failures.length, 0);
+    assert.equal(relative.reminders[0].startDate, '2026-11-26');
+    assert.equal(relative.reminders[0].times.join(','), '00:05', 'confirmation uses the fixed preview time');
+    assert.equal(relative.reminders[0].repeatMode, 'followTaskRepeat');
+    assert.equal(relative.task.completionTime, '2026-11-26', 'relative reminders retain the existing task-date linkage');
+    assert.equal(relative.sameNameTask.completionTime, '2026-11-30');
+    const expired = createHarness({ content: '1min提醒喝水' }, { Date: ClockDate, baseDate: new ClockDate() });
+    clock += 2 * 60000;
+    const expiredResult = await expired.apply(['completionTime', 'reminder']);
+    assert.match(expiredResult.failures[0], /提醒时间已过/);
+    assert.equal(expired.writes.length, 0, 'an expired confirmation must not partially change task dates');
+    assert.equal(expired.reminders.length, 0);
 
     console.log('semantic date reminder write tests passed');
 })().catch((error) => {

@@ -13,7 +13,7 @@ const end = source.indexOf('\n            let inlineMonthDays', start);
 assert.ok(start >= 0 && end > start, 'inline editor positioner exists');
 const positioner = source.slice(start, end);
 const hubStart = source.indexOf('            const positionTimeHub = () => {', source.indexOf('const showPrototypeScheduleEditorCard ='));
-const hubEnd = source.indexOf('\n            const scrollTimeHubToCurrent', hubStart);
+const hubEnd = source.indexOf('\n            const openTimeHub', hubStart);
 assert.ok(hubStart >= 0 && hubEnd > hubStart, 'date/time hub positioner exists');
 const hubPositioner = source.slice(hubStart, hubEnd);
 assert.match(source, /__tmFromDraftCard: true/);

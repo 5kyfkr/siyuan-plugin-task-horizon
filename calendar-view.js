@@ -36780,7 +36780,6 @@
             };
             let timeHub = null;
             let timeHubEndpoint = 'start';
-            let timeHubMode = 'date';
             let timeHubMonth = '';
             let hubDateDrag = null;
             let suppressNextHubDateClick = false;
@@ -36788,7 +36787,7 @@
             let timeHubAutoSavePending = false;
             let recurringScheduleInitialTimes = null;
             let recurringScheduleSavePending = false;
-            // Closing the date/time hub commits its changed values through the
+            // Closing the date hub commits its changed values through the
             // primary editor save handler. Keep that save distinct from an
             // explicit primary-card save so the first-level card remains open
             // while the calendar refreshes underneath it.
@@ -36801,16 +36800,6 @@
             const hubTimeText = (value, fallback = '') => {
                 const text = String(value || '').slice(11, 16);
                 return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
-            };
-            const hubTimeOptionsHtml = () => {
-                const field = timeHubEndpoint === 'end' ? 'end' : 'start';
-                const current = hubTimeText(readValue(field), field === 'start' ? '09:00' : '10:00');
-                const options = new Set();
-                for (let hour = 0; hour < 24; hour += 1) {
-                    for (let minute = 0; minute < 60; minute += 30) options.add(`${pad2(hour)}:${pad2(minute)}`);
-                }
-                if (/^\d{2}:\d{2}$/.test(current)) options.add(current);
-                return Array.from(options).sort().map((value) => `<button type="button" class="tm-proto-inline-hub-time-option${value === current ? ' is-selected' : ''}" data-tm-proto-hub-time-option="${value}" aria-label="${esc(value)}">${value}</button>`).join('');
             };
             const sortHubDateRange = (first, second) => {
                 const a = String(first || '').trim();
@@ -36905,7 +36894,7 @@
                 return `<div class="tm-proto-inline-hub-calendar-head"><strong>${__tmT("date.yearMonthTitle", { year: year, month: month })}</strong><div class="tm-proto-inline-hub-month-actions"><button type="button" data-tm-proto-hub-month="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}">${buildCalendarChromeIcon('chevron-left', 12)}</button><button type="button" data-tm-proto-hub-month="0" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentMonth")}">${__tmT("calendar.today")}</button><button type="button" data-tm-proto-hub-month="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}">${buildCalendarChromeIcon('chevron-right', 12)}</button></div></div><div class="tm-proto-inline-hub-weekdays">${labels}</div><div class="tm-proto-inline-hub-calendar">${days}</div>`;
             };
             const syncHubDateDragPreview = () => {
-                if (!(timeHub instanceof HTMLElement) || timeHubMode !== 'date') return;
+                if (!(timeHub instanceof HTMLElement)) return;
                 const range = hubDateDrag?.moved ? sortHubDateRange(hubDateDrag.anchor, hubDateDrag.current) : null;
                 timeHub.querySelectorAll('[data-tm-proto-hub-date]').forEach((node) => {
                     const key = String(node.getAttribute('data-tm-proto-hub-date') || '').trim();
@@ -36920,8 +36909,12 @@
                 const end = readValue('end');
                 pop.querySelector('[data-tm-proto-edit-date-card="start"] .tm-proto-inline-date-value')?.replaceChildren(document.createTextNode(hubDateText(start.slice(0, 10))));
                 pop.querySelector('[data-tm-proto-edit-date-card="end"] .tm-proto-inline-date-value')?.replaceChildren(document.createTextNode(hubDateText(end.slice(0, 10))));
-                pop.querySelector('[data-tm-proto-edit-time-card="start"] .tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(eventApi.allDay === true ? __tmT("calendar.allDay") : (hubTimeText(start, '09:00'))));
-                pop.querySelector('[data-tm-proto-edit-time-card="end"] .tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(eventApi.allDay === true ? __tmT("calendar.allDay") : (hubTimeText(end, '10:00'))));
+                const startTimeCard = pop.querySelector('[data-tm-proto-edit-time-card="start"]');
+                const endTimeCard = pop.querySelector('[data-tm-proto-edit-time-card="end"]');
+                if (startTimeCard instanceof HTMLInputElement) startTimeCard.value = hubTimeText(start, '09:00');
+                else startTimeCard?.querySelector('.tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(__tmT("calendar.allDay")));
+                if (endTimeCard instanceof HTMLInputElement) endTimeCard.value = hubTimeText(end, '10:00');
+                else endTimeCard?.querySelector('.tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(__tmT("calendar.allDay")));
                 const startDate = new Date(start);
                 const endDate = new Date(end);
                 const durationEl = pop.querySelector('[data-tm-proto-inline-duration]');
@@ -36942,9 +36935,7 @@
                         });
                     }
                     const calendar = timeHub.querySelector('[data-tm-proto-inline-hub-calendar]');
-                    if (calendar && timeHubMode === 'date') calendar.innerHTML = hubCalendarHtml();
-                    const timeList = timeHub.querySelector('[data-tm-proto-inline-hub-time-list]');
-                    if (timeList && timeHubMode === 'time') timeList.innerHTML = hubTimeOptionsHtml();
+                    if (calendar) calendar.innerHTML = hubCalendarHtml();
                 }
             };
             const readTimeHubValues = () => ({
@@ -36961,17 +36952,8 @@
                 const current = readTimeHubValues();
                 return current.start !== recurringScheduleInitialTimes.start || current.end !== recurringScheduleInitialTimes.end;
             };
-            const closeTimeHub = () => {
-                const shouldAutoSave = timeHub instanceof HTMLElement
-                    && !isNew
-                    && !isRecurringScheduleEditor
-                    && hasTimeHubChanges();
-                timeHub?.remove?.();
-                timeHub = null;
-                hubDateDrag = null;
-                suppressNextHubDateClick = false;
-                timeHubInitialValues = null;
-                if (!shouldAutoSave || timeHubAutoSavePending) return;
+            const requestInlineEditorAutoSave = () => {
+                if (timeHubAutoSavePending) return;
                 const saveButton = pop?.querySelector?.('[data-tm-proto-edit-action="save"]');
                 if (!(saveButton instanceof HTMLButtonElement)) return;
                 timeHubAutoSavePending = true;
@@ -36984,10 +36966,60 @@
                     timeHubAutoSavePending = false;
                 }
             };
+            const applyScheduleTimeInput = (timeInput) => {
+                const field = timeInput.getAttribute('data-tm-proto-edit-time-card') === 'end' ? 'end' : 'start';
+                const hidden = pop.querySelector(`[data-tm-proto-edit-field="${field}"]`);
+                if (!(hidden instanceof HTMLInputElement)) return;
+                const previous = String(hidden.value || '');
+                const fallback = field === 'start' ? '09:00' : '10:00';
+                const previousTime = hubTimeText(previous, fallback);
+                const nextTime = String(timeInput.value || '').trim();
+                if (!/^\d{2}:\d{2}$/.test(nextTime)) {
+                    timeInput.value = previousTime;
+                    return;
+                }
+                const date = previous.slice(0, 10) || formatDateKey(new Date());
+                const next = `${date}T${nextTime}`;
+                const previousStartMs = new Date(readValue('start')).getTime();
+                const previousEndMs = new Date(readValue('end')).getTime();
+                const startMs = field === 'start' ? new Date(next).getTime() : previousStartMs;
+                let endMs = field === 'end' ? new Date(next).getTime() : previousEndMs;
+                let shiftedEndValue = '';
+                if (field === 'start' && Number.isFinite(startMs)) {
+                    const durationMs = previousEndMs > previousStartMs
+                        ? previousEndMs - previousStartMs
+                        : 60 * 60000;
+                    endMs = startMs + durationMs;
+                    shiftedEndValue = localScheduleDateTimeValue(new Date(endMs));
+                }
+                if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+                    timeInput.value = previousTime;
+                    toast(__tmT("calendar.theEndTimeMustBeLaterThanTheStart"), 'warning');
+                    return;
+                }
+                hidden.value = next;
+                if (shiftedEndValue) {
+                    const endInput = pop.querySelector('[data-tm-proto-edit-field="end"]');
+                    if (endInput instanceof HTMLInputElement) endInput.value = shiftedEndValue;
+                }
+                syncHubCards();
+                if (!isNew && !isRecurringScheduleEditor) requestInlineEditorAutoSave();
+            };
+            const closeTimeHub = () => {
+                const shouldAutoSave = timeHub instanceof HTMLElement
+                    && !isNew
+                    && !isRecurringScheduleEditor
+                    && hasTimeHubChanges();
+                timeHub?.remove?.();
+                timeHub = null;
+                hubDateDrag = null;
+                suppressNextHubDateClick = false;
+                timeHubInitialValues = null;
+                if (shouldAutoSave) requestInlineEditorAutoSave();
+            };
             const positionTimeHub = () => {
                 if (!(timeHub instanceof HTMLElement)) return;
-                const anchorSelector = timeHubMode === 'time' ? '[data-tm-proto-edit-time-card]' : '[data-tm-proto-edit-date-card]';
-                const anchor = pop.querySelector(`${anchorSelector}[data-tm-proto-edit-${timeHubMode === 'time' ? 'time' : 'date'}-card="${timeHubEndpoint}"]`);
+                const anchor = pop.querySelector(`[data-tm-proto-edit-date-card="${timeHubEndpoint}"]`);
                 if (!(anchor instanceof HTMLElement)) return;
                 const rect = anchor.getBoundingClientRect();
                 const viewport = isMobileFullscreen
@@ -37024,19 +37056,10 @@
                 if (Number.isFinite(correctedLeft)) timeHub.style.left = `${Math.round(correctedLeft)}px`;
                 if (Number.isFinite(correctedTop)) timeHub.style.top = `${Math.round(correctedTop)}px`;
             };
-            const scrollTimeHubToCurrent = () => {
-                if (!(timeHub instanceof HTMLElement) || timeHubMode !== 'time') return;
-                const list = timeHub.querySelector('[data-tm-proto-inline-hub-time-list]');
-                const selected = list?.querySelector('.tm-proto-inline-hub-time-option.is-selected');
-                if (!(list instanceof HTMLElement) || !(selected instanceof HTMLElement)) return;
-                const targetTop = selected.offsetTop - Math.max(0, (list.clientHeight - selected.offsetHeight) / 2);
-                list.scrollTop = Math.max(0, targetTop);
-            };
-            const openTimeHub = (endpoint, mode = 'date') => {
+            const openTimeHub = (endpoint) => {
                 timeHubEndpoint = endpoint === 'end' ? 'end' : 'start';
-                timeHubMode = mode === 'time' && eventApi.allDay !== true ? 'time' : 'date';
                 timeHubInitialValues = readTimeHubValues();
-                if (timeHubMode === 'date') timeHubMonth = hubMonthKey(readValue(timeHubEndpoint).slice(0, 10));
+                timeHubMonth = hubMonthKey(readValue(timeHubEndpoint).slice(0, 10));
                 if (!(timeHub instanceof HTMLElement)) {
                     timeHub = document.createElement('div');
                     timeHub.className = 'tm-proto-inline-time-hub';
@@ -37053,9 +37076,7 @@
                     timeHub.addEventListener('click', (event) => {
                         const target = event.target instanceof Element ? event.target : null;
                         if (!target) return;
-                        const clearButton = timeHubMode === 'date' && isTaskDateEditor
-                            ? target.closest('[data-tm-proto-hub-clear-date]')
-                            : null;
+                        const clearButton = isTaskDateEditor ? target.closest('[data-tm-proto-hub-clear-date]') : null;
                         if (clearButton) {
                             event.preventDefault();
                             event.stopPropagation();
@@ -37064,50 +37085,16 @@
                             setLinkedHubDate('');
                             return;
                         }
-                        const endpointButton = timeHubMode === 'date' ? target.closest('[data-tm-proto-hub-endpoint]') : null;
+                        const endpointButton = target.closest('[data-tm-proto-hub-endpoint]');
                         if (endpointButton) { timeHubEndpoint = endpointButton.getAttribute('data-tm-proto-hub-endpoint') === 'end' ? 'end' : 'start'; syncHubCards(); positionTimeHub(); return; }
-                        const timeButton = timeHubMode === 'time' ? target.closest('[data-tm-proto-hub-time-option]') : null;
-                        if (timeButton) {
-                            event.stopPropagation();
-                            const value = String(timeButton.getAttribute('data-tm-proto-hub-time-option') || '').trim();
-                            if (!/^\d{2}:\d{2}$/.test(value)) return;
-                            const field = timeHubEndpoint === 'end' ? 'end' : 'start';
-                            const hidden = pop.querySelector(`[data-tm-proto-edit-field="${field}"]`);
-                            const previous = hidden?.value || '';
-                            const date = String(previous).slice(0, 10) || formatDateKey(new Date());
-                            const next = `${date}T${value}`;
-                            const other = field === 'start' ? readValue('end') : readValue('start');
-                            const startMs = new Date(field === 'start' ? next : other).getTime();
-                            const previousEndMs = new Date(readValue('end')).getTime();
-                            let endMs = new Date(field === 'end' ? next : other).getTime();
-                            if (field === 'start' && Number.isFinite(startMs)) {
-                                const previousStartMs = new Date(previous).getTime();
-                                const durationMs = previousEndMs > previousStartMs
-                                    ? previousEndMs - previousStartMs
-                                    : 60 * 60000;
-                                const endInput = pop.querySelector('[data-tm-proto-edit-field="end"]');
-                                if (endInput instanceof HTMLInputElement) {
-                                    endInput.value = localScheduleDateTimeValue(new Date(startMs + durationMs));
-                                }
-                                endMs = startMs + durationMs;
-                            }
-                            if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-                                toast(__tmT("calendar.theEndTimeMustBeLaterThanTheStart"), 'warning');
-                                return;
-                            }
-                            if (hidden) hidden.value = next;
-                            syncHubCards();
-                            closeTimeHub();
-                            return;
-                        }
-                        const dateButton = timeHubMode === 'date' ? target.closest('[data-tm-proto-hub-date]') : null;
+                        const dateButton = target.closest('[data-tm-proto-hub-date]');
                         if (dateButton) {
                             if (suppressNextHubDateClick) { suppressNextHubDateClick = false; return; }
                             const key = dateButton.getAttribute('data-tm-proto-hub-date') || '';
                             setLinkedHubDate(key);
                             return;
                         }
-                        const monthButton = timeHubMode === 'date' ? target.closest('[data-tm-proto-hub-month]') : null;
+                        const monthButton = target.closest('[data-tm-proto-hub-month]');
                         if (monthButton) {
                             const delta = Number(monthButton.getAttribute('data-tm-proto-hub-month') || 0);
                             timeHubMonth = delta === 0 ? hubMonthKey(formatDateKey(new Date())) : shiftHubMonth(timeHubMonth, delta);
@@ -37115,7 +37102,7 @@
                         }
                     });
                     timeHub.addEventListener('pointerdown', (event) => {
-                        if (timeHubMode !== 'date' || (event.button != null && event.button !== 0)) return;
+                        if (event.button != null && event.button !== 0) return;
                         const target = event.target instanceof Element ? event.target : null;
                         const dayButton = target?.closest?.('[data-tm-proto-hub-date]');
                         if (!(dayButton instanceof HTMLElement)) return;
@@ -37127,7 +37114,7 @@
                         try { event.preventDefault(); } catch (e) {}
                     });
                     timeHub.addEventListener('pointermove', (event) => {
-                        if (timeHubMode !== 'date' || !hubDateDrag) return;
+                        if (!hubDateDrag) return;
                         const hit = document.elementFromPoint(Number(event.clientX) || 0, Number(event.clientY) || 0);
                         const dayButton = hit instanceof Element ? hit.closest('[data-tm-proto-hub-date]') : null;
                         if (!(dayButton instanceof HTMLElement)) return;
@@ -37149,7 +37136,7 @@
                     timeHub.addEventListener('pointerup', finishHubDateDrag);
                     timeHub.addEventListener('pointercancel', () => { hubDateDrag = null; suppressNextHubDateClick = false; syncHubDateDragPreview(); });
                 }
-                timeHub.setAttribute('aria-label', timeHubMode === 'time' ? __tmT("calendar.timePickerLabel", { value1: timeHubEndpoint === 'end' ? __tmT("calendar.end") : __tmT("calendar.start") }) : __tmT("calendar.selectDate"));
+                timeHub.setAttribute('aria-label', __tmT("calendar.selectDate"));
                 const endpointHtml = (() => {
                     const endpoint = (field, label) => {
                         const value = readValue(field).slice(0, 10);
@@ -37163,18 +37150,12 @@
                     };
                     return `<div class="tm-proto-inline-hub-endpoints">${endpoint('start', __tmT("calendar.start"))}${endpoint('end', isTaskDateEditor ? __tmT("calendar.due") : __tmT("calendar.end"))}</div>`;
                 })();
-                if (timeHubMode === 'time') {
-                    const fieldLabel = timeHubEndpoint === 'end' ? __tmT("calendar.endTime") : __tmT("calendar.startTime");
-                    timeHub.innerHTML = `<div class="tm-proto-inline-hub-body tm-proto-inline-hub-body--time"><div class="tm-proto-inline-hub-time-title"><strong>${fieldLabel}</strong><span>${esc(hubDateText(readValue(timeHubEndpoint).slice(0, 10)))}</span></div><div class="tm-proto-inline-hub-time-list" data-tm-proto-inline-hub-time-list>${hubTimeOptionsHtml()}</div></div>`;
-                } else {
-                    const quickDates = [[__tmT("common.today"), formatDateKey(new Date())], [__tmT("calendar.tomorrow"), formatDateKey(new Date(Date.now() + 86400000))], [__tmT("calendar.nextWeek2"), formatDateKey(new Date(Date.now() + 7 * 86400000))], [__tmT("calendar.nextMonth"), formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1))]];
-                    const quickDateHtml = quickDates.map(([label, key]) => `<button type="button" data-tm-proto-hub-date="${key}">${label}</button>`).join('');
-                    timeHub.innerHTML = `<div class="tm-proto-inline-hub-body">${endpointHtml}<div class="tm-proto-inline-hub-quick-dates" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.quickdate")}">${quickDateHtml}</div><div data-tm-proto-inline-hub-calendar>${hubCalendarHtml()}</div></div>`;
-                }
+                const quickDates = [[__tmT("common.today"), formatDateKey(new Date())], [__tmT("calendar.tomorrow"), formatDateKey(new Date(Date.now() + 86400000))], [__tmT("calendar.nextWeek2"), formatDateKey(new Date(Date.now() + 7 * 86400000))], [__tmT("calendar.nextMonth"), formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1))]];
+                const quickDateHtml = quickDates.map(([label, key]) => `<button type="button" data-tm-proto-hub-date="${key}">${label}</button>`).join('');
+                timeHub.innerHTML = `<div class="tm-proto-inline-hub-body">${endpointHtml}<div class="tm-proto-inline-hub-quick-dates" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.quickdate")}">${quickDateHtml}</div><div data-tm-proto-inline-hub-calendar>${hubCalendarHtml()}</div></div>`;
                 syncHubCards();
                 positionTimeHub();
-                if (timeHubMode === 'time') scrollTimeHubToCurrent();
-                try { requestAnimationFrame(() => { positionTimeHub(); scrollTimeHubToCurrent(); }); } catch (e) {}
+                try { requestAnimationFrame(positionTimeHub); } catch (e) {}
             };
             const position = () => {
                 if (!pop.isConnected) return;
@@ -37471,6 +37452,20 @@
                         ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">${__tmT("calendar.source")}</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">${__tmT("calendar.taskDetails")}</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">${__tmT("calendar.openNote")}</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.color")}</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.linkedTask2")}</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.calendar")}</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label><button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>${__tmT("calendar.moreSettings")}</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("ai.warnings")}</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>${__tmT("calendar.useGlobalSetting")}</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>${__tmT("calendar.remindersOff")}</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>${__tmT("calendar.onTime")}</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>${__tmT("calendar.minutesBefore5")}</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>${__tmT("calendar.minutesBefore6")}</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>${__tmT("calendar.minutesBefore7")}</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>${__tmT("calendar.hourBefore2")}</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.repeat")}</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>${__tmT("calendar.noRepeat")}</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>${__tmT("calendar.daily")}</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>${__tmT("calendar.workdays")}</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>${__tmT("calendar.weekly")}</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>${__tmT("calendar.monthly2")}</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>${__tmT("calendar.yearly")}</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.color")}</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("kernel.note")}</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? __tmT("calendar.notesAreSharedWithTheLinkedTask") : __tmT("calendar.addNote")}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : `<div class="quick-setting-row tm-proto-inline-device-row"><span>${__tmT("calendar.deviceReminders")}</span><button type="button" data-tm-proto-edit-device>${__tmT("calendar.view")}</button></div>`}</div>`}
                     </div>
                     <div class="ft quick-new-foot tm-proto-event-popover-actions tm-proto-inline-editor-actions">${isNew || isTaskDateEditor ? `<button type="button" class="secondary tm-proto-inline-cancel" data-tm-proto-edit-action="cancel">${__tmT("common.cancel")}</button>` : ''}${isNew || isTaskDateEditor ? '' : `<button type="button" class="danger tm-proto-inline-delete" data-tm-proto-edit-action="delete">${__tmT("common.delete")}</button>`}<button type="button" class="primary tm-proto-inline-save" data-tm-proto-edit-action="save">${isNew ? __tmT("calendar.createSchedule") : __tmT("common.save")}</button></div>`;
+                if (!isTaskDateEditor && eventApi.allDay !== true) {
+                    for (const [field, fallback] of [['start', '09:00'], ['end', '10:00']]) {
+                        const button = pop.querySelector(`button[data-tm-proto-edit-time-card="${field}"]`);
+                        if (!(button instanceof HTMLButtonElement)) continue;
+                        const input = document.createElement('input');
+                        input.type = 'time';
+                        input.step = '60';
+                        input.className = button.className;
+                        input.value = hubTimeText(readValue(field), fallback);
+                        input.setAttribute('data-tm-proto-edit-time-card', field);
+                        input.setAttribute('aria-label', button.getAttribute('aria-label') || '');
+                        button.replaceWith(input);
+                    }
+                }
                 const more = pop.querySelector('[data-tm-proto-inline-more]');
                 if (more) more.hidden = !moreExpanded;
                 pop.querySelector('[data-tm-proto-edit-more]')?.setAttribute('aria-expanded', moreExpanded ? 'true' : 'false');
@@ -37685,10 +37680,8 @@
                     if (timeHub instanceof HTMLElement) { closeTimeHub(); return; }
                     openTimeHub(card.getAttribute('data-tm-proto-edit-date-card') || 'start', 'date');
                 }));
-                pop.querySelectorAll('[data-tm-proto-edit-time-card]').forEach((card) => card.addEventListener('click', (event) => {
-                    event.preventDefault(); event.stopPropagation();
-                    if (timeHub instanceof HTMLElement) { closeTimeHub(); return; }
-                    openTimeHub(card.getAttribute('data-tm-proto-edit-time-card') || 'start', 'time');
+                pop.querySelectorAll('[data-tm-proto-edit-time-card]').forEach((input) => input.addEventListener('change', () => {
+                    if (input instanceof HTMLInputElement) applyScheduleTimeInput(input);
                 }));
                 const toggleInlineMore = () => {
                     moreExpanded = !moreExpanded;
@@ -38083,12 +38076,12 @@
                     return;
                 }
                 if (target && pop.contains(target)) {
-                    const timeHubToggle = target.closest?.('[data-tm-proto-edit-date-card], [data-tm-proto-edit-time-card]');
+                    const timeHubToggle = target.closest?.('[data-tm-proto-edit-date-card]');
                     if (timeHub instanceof HTMLElement && !timeHub.contains(target) && !timeHubToggle) closeTimeHub();
                     return;
                 }
                 // Fullscreen editors close through their own controls. Outside
-                // events may dismiss the date/time picker, but never the draft.
+                // events may dismiss the date picker, but never the draft.
                 if (isMobileFullscreen) {
                     if (!timeHub?.contains?.(target)) closeTimeHub();
                     return;
@@ -38109,7 +38102,7 @@
             };
             // Some embedded/webview surfaces suppress the follow-up click
             // when a date card or calendar canvas owns pointer capture. Close
-            // the secondary date/time hub on the originating pointer event as
+            // the date picker on the originating pointer event as
             // well, while keeping clicks inside the first-level editor intact.
             const onDocumentPointerDown = (event) => {
                 const target = event.target instanceof Node ? event.target : null;
@@ -38117,7 +38110,7 @@
                 if (timeHub.contains(target)) return;
                 if (pop.contains(target)) {
                     const hubToggle = target instanceof Element
-                        ? target.closest('[data-tm-proto-edit-date-card], [data-tm-proto-edit-time-card]')
+                        ? target.closest('[data-tm-proto-edit-date-card]')
                         : null;
                     if (!hubToggle) closeTimeHub();
                     return;
@@ -42056,6 +42049,8 @@
         }
         for (const [key, type] of Object.entries(fields)) {
             if (typeof shared[key] !== type) continue;
+            // A stale disk copy must not change the connection for an active run.
+            if (key === 'calendarCaldav' && globalThis.__tmCalendarCaldav?.isRunning?.() === true) continue;
             let sharedValue = shared[key];
             if (key === 'calendarIcsDocGroupIds' && !Array.isArray(sharedValue)) {
                 throw new Error(__tmT("calendar.theDocumentGroupSyncScopeIsInvalidThisPublish"));
@@ -42871,7 +42866,8 @@
     }
 
     function scheduleCalendarSubscriptionContentCheck(source, delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS) {
-        globalThis.__tmCalendarCaldav?.markDirty(source);
+        // Queue a follow-up without invalidating the current CalDAV snapshot.
+        globalThis.__tmCalendarCaldav?.scheduleContentCheck?.();
         if (!calendarSubscriptionPublisher.bound) return false;
         if (!getSettings().icsEnabled || getSettings().icsPublishMode === 'manual') return false;
         // Sync completion may only concern reminder registries or our own ICS
