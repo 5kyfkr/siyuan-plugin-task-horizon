@@ -197,6 +197,7 @@
         { field: 'duration', label: __tmT("task.duration"), defaultKey: 'custom-duration', sqlAlias: 'duration' },
         { field: 'remark', label: __tmT("kernel.note"), defaultKey: 'custom-remark', sqlAlias: 'remark' },
         { field: 'taskDateColor', label: __tmT("kernel.taskDateColor"), defaultKey: 'custom-task-date-color', sqlAlias: 'task_date_color', mirror: true },
+        { field: 'taskBackgroundColor', label: __tmT("task.backgroundColor"), defaultKey: 'custom-task-background-color', sqlAlias: 'task_background_color' },
         { field: 'customTime', label: __tmT("kernel.customTime"), defaultKey: 'custom-time', sqlAlias: 'custom_time', visibleDate: true, mirror: true },
         { field: 'milestone', label: __tmT("kernel.milestone"), defaultKey: 'custom-milestone-event', sqlAlias: 'milestone' },
         { field: 'pinned', label: __tmT("kernel.pin"), defaultKey: 'custom-pinned', sqlAlias: 'pinned' },
@@ -418,6 +419,10 @@
                 target.taskDateColor = text;
                 target.task_date_color = text;
                 target.custom_task_date_color = text;
+                return true;
+            case 'taskBackgroundColor':
+                if (!shouldApply(target.taskBackgroundColor, target.task_background_color)) return false;
+                target.taskBackgroundColor = target.task_background_color = __tmNormalizeTaskBackgroundColor(text);
                 return true;
             case 'taskCompleteAt':
                 if (!shouldApply(target.taskCompleteAt, target.task_complete_at)) return false;
@@ -1966,6 +1971,8 @@
             'custom_completion_time',
             'task_date_color',
             'custom_task_date_color',
+            'task_background_color',
+            'custom-task-background-color',
             'task_complete_at',
             'custom_milestone',
             'customMilestone',
@@ -2009,6 +2016,8 @@
         if (__tmIsTaskSnapshotMeaningfulValue(nextCompletionTime)) out.completionTime = String(nextCompletionTime).trim();
         const nextTaskDateColor = __tmSnapshotPickFirstValue(source, ['taskDateColor', 'task_date_color', 'custom_task_date_color', ...__tmGetTaskMetaAttrReadKeys('taskDateColor')]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextTaskDateColor)) out.taskDateColor = String(nextTaskDateColor).trim();
+        const nextTaskBackgroundColor = __tmNormalizeTaskBackgroundColor(__tmSnapshotPickFirstValue(source, ['taskBackgroundColor', 'task_background_color', ...__tmGetTaskMetaAttrReadKeys('taskBackgroundColor')]));
+        if (nextTaskBackgroundColor) out.taskBackgroundColor = nextTaskBackgroundColor;
         const nextTaskCompleteAt = __tmSnapshotPickFirstValue(source, ['taskCompleteAt', 'task_complete_at', ...__tmGetTaskMetaAttrReadKeys('taskCompleteAt')]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextTaskCompleteAt)) out.taskCompleteAt = String(nextTaskCompleteAt).trim();
         const nextMilestone = __tmSnapshotPickBooleanTrue(source, ['milestone', 'custom_milestone', 'customMilestone']);
@@ -2069,6 +2078,9 @@
             target.task_date_color = String(target.taskDateColor || '').trim();
             target.custom_task_date_color = target.task_date_color;
         }
+        target.taskBackgroundColor = __tmNormalizeTaskBackgroundColor(target.taskBackgroundColor ?? target.task_background_color);
+        if (target.taskBackgroundColor) target.task_background_color = target.taskBackgroundColor;
+        else delete target.task_background_color;
         if (!isValidValue(target.taskCompleteAt) && isValidValue(target.task_complete_at)) target.taskCompleteAt = String(target.task_complete_at || '').trim();
         syncVisibleDateAlias('customTime', 'custom_time');
         if (!isValidValue(target.customStatus) && isValidValue(target.custom_status)) target.customStatus = String(target.custom_status || '').trim();
@@ -3822,6 +3834,7 @@
             done: effectiveDone,
             taskMarker: String(resolvedMarker || '').trim() || (effectiveDone ? 'X' : ''),
             priority: String(source.priority || source.custom_priority || '').trim(),
+            taskBackgroundColor: __tmGetTaskBackgroundColor(source),
             pinned: source.pinned === true || source.custom_pinned === true || String(source.custom_pinned || '').trim() === '1',
             allDayBottom: source.allDayBottom === true || source.custom_all_day_bottom === true || String(source.custom_all_day_bottom || '').trim() === '1',
             milestone: source.milestone === true || source.custom_milestone === true || String(source.custom_milestone || '').trim() === '1',
@@ -3831,6 +3844,7 @@
             customTime: String(source.customTime || source.custom_time || '').trim(),
             customStatus: String(source.customStatus || source.custom_status || '').trim(),
             duration: String(source.duration || source.custom_duration || '').trim(),
+            durationSource: String(source.durationSource || source.duration_source || '').trim(),
             remark: __tmCompactTaskIndexText(source.remark || source.custom_remark || '', 900),
             taskCompleteAt: String(source.taskCompleteAt || source.task_complete_at || '').trim(),
             tomatoHours: String(source.tomatoHours || source.tomato_hours || '').trim(),
@@ -3951,6 +3965,8 @@
             task_marker: markerForMarkdown,
             priority: String(item.priority || '').trim(),
             custom_priority: String(item.priority || '').trim(),
+            taskBackgroundColor: __tmNormalizeTaskBackgroundColor(item.taskBackgroundColor || item.task_background_color || ''),
+            task_background_color: __tmNormalizeTaskBackgroundColor(item.taskBackgroundColor || item.task_background_color || ''),
             pinned: item.pinned === true,
             custom_pinned: item.pinned === true ? '1' : '',
             allDayBottom: item.allDayBottom === true,
@@ -3966,6 +3982,7 @@
             customStatus: String(item.customStatus || '').trim(),
             custom_status: String(item.customStatus || '').trim(),
             duration: String(item.duration || '').trim(),
+            durationSource: String(item.durationSource || item.duration_source || '').trim(),
             remark: String(item.remark || '').trim(),
             taskCompleteAt: String(item.taskCompleteAt || '').trim(),
             task_complete_at: String(item.taskCompleteAt || '').trim(),
@@ -5327,6 +5344,7 @@
                 customStatus: String(value.customStatus || value.custom_status || '').trim(),
                 remark: String(value.remark || value.custom_remark || '').trim(),
                 duration: String(value.duration || value.custom_duration || '').trim(),
+                durationSource: String(value.durationSource || value.duration_source || '').trim(),
                 customTime: String(value.customTime || value.custom_time || '').trim(),
                 tomatoEstimateCount: Number.isFinite(Number(value.tomatoEstimateCount)) ? Number(value.tomatoEstimateCount) : 0,
                 tomatoCount: Number.isFinite(Number(value.tomatoCount)) ? Number(value.tomatoCount) : 0,
@@ -7553,10 +7571,14 @@
             // 这样可以确保悬浮条修改后，切换页签时能获取到最新数据
             // 注意：数据库返回的字段名是 custom_priority, custom_status 等，会被规范化为 priority, customStatus
             const dbHasPriority = hasLoadedMetaAttrField('priority') || isValidValue(task.priority) || isValidValue(task.custom_priority);
+            const dbHasTaskBackgroundColor = hasLoadedMetaAttrField('taskBackgroundColor')
+                || isValidValue(task.taskBackgroundColor)
+                || isValidValue(task.task_background_color);
             const dbHasPinned = hasLoadedMetaAttrField('pinned') || isValidValue(task.pinned);
             const dbHasAllDayBottom = hasLoadedMetaAttrField('allDayBottom') || isValidValue(task.allDayBottom) || isValidValue(task.custom_all_day_bottom);
             const dbHasMilestone = hasLoadedMetaAttrField('milestone') || isValidValue(task.milestone);
             const dbHasDuration = hasLoadedMetaAttrField('duration') || isValidValue(task.duration);
+            const dbHasDurationSource = hasLoadedMetaAttrField('durationSource') || isValidValue(task.durationSource) || isValidValue(task.duration_source);
             const dbHasTomatoEstimateCount = hasLoadedMetaAttrField('tomatoEstimateCount') || isValidValue(task.tomatoEstimateCount) || isValidValue(task.tomato_estimate_count);
             const dbHasTomatoCount = hasLoadedMetaAttrField('tomatoCount') || isValidValue(task.tomatoCount) || isValidValue(task.tomato_count);
             const dbHasRemark = hasLoadedMetaAttrField('remark') || isValidValue(task.remark);
@@ -7585,6 +7607,9 @@
 
             // 只有当数据库没有有效值时，才使用 MetaStore 的缓存值
             if (!dbHasPriority && 'priority' in v && isValidValue(v.priority)) task.priority = v.priority;
+            if (!dbHasTaskBackgroundColor && 'taskBackgroundColor' in v && isValidValue(v.taskBackgroundColor)) {
+                task.taskBackgroundColor = task.task_background_color = __tmNormalizeTaskBackgroundColor(v.taskBackgroundColor);
+            }
             if (!dbHasPinned && 'pinned' in v && isValidValue(v.pinned)) task.pinned = v.pinned;
         if (!dbHasAllDayBottom && 'allDayBottom' in v && isValidValue(v.allDayBottom)) task.allDayBottom = v.allDayBottom;
         if (!isValidValue(task.custom_all_day_bottom) && isValidValue(task.allDayBottom)) {
@@ -7592,6 +7617,10 @@
         }
         if (!dbHasMilestone && 'milestone' in v && isValidValue(v.milestone)) task.milestone = v.milestone;
             if (!dbHasDuration && 'duration' in v && isValidValue(v.duration)) task.duration = v.duration;
+            if (!dbHasDurationSource && 'durationSource' in v && isValidValue(v.durationSource)) {
+                task.durationSource = String(v.durationSource || '').trim();
+                task.duration_source = task.durationSource;
+            }
             if (!dbHasTomatoEstimateCount && 'tomatoEstimateCount' in v && isValidValue(v.tomatoEstimateCount)) {
                 task.tomatoEstimateCount = __tmNormalizeTomatoCountValue(v.tomatoEstimateCount);
                 task.tomato_estimate_count = task.tomatoEstimateCount;
@@ -7632,10 +7661,13 @@
             const candidate = {};
             const priority = __tmNormalizeMetaPriorityForStore(task.priority || task.custom_priority || task.customPriority || '');
             if (priority) candidate.priority = priority;
+            const taskBackgroundColor = __tmGetTaskBackgroundColor(task);
+            if (taskBackgroundColor) candidate.taskBackgroundColor = taskBackgroundColor;
             if (task.pinned === true || task.pinned === '1' || task.pinned === 1) candidate.pinned = true;
             if (task.allDayBottom === true || task.allDayBottom === '1' || task.allDayBottom === 1) candidate.allDayBottom = true;
             if (task.milestone === true || task.milestone === '1' || task.milestone === 1) candidate.milestone = true;
             if (task.duration) candidate.duration = task.duration;
+            if (task.durationSource) candidate.durationSource = String(task.durationSource || '').trim();
             if (task.tomatoEstimateCount) candidate.tomatoEstimateCount = __tmNormalizeTomatoCountValue(task.tomatoEstimateCount);
             if (task.tomatoCount) candidate.tomatoCount = __tmNormalizeTomatoCountValue(task.tomatoCount);
             if (task.remark) candidate.remark = task.remark;
@@ -8979,6 +9011,7 @@
             tomatoPolicyRevision: 0,
             calendarEnabled: true,
             calendarLinkDockTomato: true,
+            calendarShowTomatoInList: false,
             calendarIcsEnabled: false,
             calendarCaldav: { enabled: false, url: '', username: '', password: '', calendarUrl: '', namespace: '', mode: 'manual', writerDevice: '' },
             calendarIcsProvider: 'chain',
@@ -9264,6 +9297,7 @@
             tableBorderColorLight: 'var(--border)',
             tableBorderColorDark: 'var(--border)',
             enableGroupTaskBgByGroupColor: true,
+            tableDocumentRowColorEnabled: true,
             enableQuickbarInlineMeta: false,
             quickbarInlineFields: ['custom-status', 'custom-completion-time'],
             quickbarVisibleItems: ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'],
@@ -9697,6 +9731,7 @@
                                 if (typeof cloudData.tomatoPolicyRevision === 'number') this.data.tomatoPolicyRevision = Math.max(0, cloudData.tomatoPolicyRevision);
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
+                                if (typeof cloudData.calendarShowTomatoInList === 'boolean') this.data.calendarShowTomatoInList = cloudData.calendarShowTomatoInList;
                                 if (typeof cloudData.calendarIcsEnabled === 'boolean') this.data.calendarIcsEnabled = cloudData.calendarIcsEnabled;
                                 if (cloudData.calendarCaldav && typeof cloudData.calendarCaldav === 'object' && !Array.isArray(cloudData.calendarCaldav)) this.data.calendarCaldav = { ...this.data.calendarCaldav, ...cloudData.calendarCaldav };
                                 if (typeof cloudData.calendarIcsProvider === 'string') this.data.calendarIcsProvider = cloudData.calendarIcsProvider;
@@ -9913,6 +9948,7 @@
                                 if (typeof cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence === 'boolean') this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence;
                                 if (typeof cloudData.collapseAllIncludesGroups === 'boolean') this.data.collapseAllIncludesGroups = cloudData.collapseAllIncludesGroups;
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
+                                if (typeof cloudData.tableDocumentRowColorEnabled === 'boolean') this.data.tableDocumentRowColorEnabled = cloudData.tableDocumentRowColorEnabled;
                                 if (typeof cloudData.whiteboardAutoConnectByCreated === 'boolean') this.data.whiteboardAutoConnectByCreated = cloudData.whiteboardAutoConnectByCreated;
                                 if (typeof cloudData.whiteboardTool === 'string') this.data.whiteboardTool = cloudData.whiteboardTool;
                                 if (typeof cloudData.whiteboardNoteDefaultFontSize === 'number') this.data.whiteboardNoteDefaultFontSize = cloudData.whiteboardNoteDefaultFontSize;
@@ -10300,6 +10336,7 @@
             this.data.tomatoPolicyRevision = Math.max(0, Number(Storage.get('tm_tomato_policy_revision', this.data.tomatoPolicyRevision)) || 0);
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
+            this.data.calendarShowTomatoInList = Storage.get('tm_calendar_show_tomato_in_list', this.data.calendarShowTomatoInList);
             this.data.calendarIcsEnabled = !!Storage.get('tm_calendar_ics_enabled', this.data.calendarIcsEnabled);
             this.data.calendarCaldav = Storage.get('tm_calendar_caldav', this.data.calendarCaldav);
             this.data.calendarIcsScope = Storage.get('tm_calendar_ics_scope', this.data.calendarIcsScope) === 'selected' ? 'selected' : 'all';
@@ -10524,6 +10561,7 @@
             this.data.enableSiyuanThemeColors = !!Storage.get('tm_enable_siyuan_theme_colors', this.data.enableSiyuanThemeColors);
             this.data.priorityIconStyle = String(Storage.get('tm_priority_icon_style', this.data.priorityIconStyle) || this.data.priorityIconStyle || 'jira').trim() === 'flag' ? 'flag' : 'jira';
             this.data.enableGroupTaskBgByGroupColor = Storage.get('tm_enable_group_task_bg_by_group_color', this.data.enableGroupTaskBgByGroupColor);
+            this.data.tableDocumentRowColorEnabled = Storage.get('tm_table_document_row_color_enabled', this.data.tableDocumentRowColorEnabled) !== false;
             this.data.aiEnabled = !!Storage.get('tm_ai_enabled', this.data.aiEnabled);
             this.data.scheduledEventsSchemaVersion = Math.max(1, Math.round(Number(Storage.get('tm_scheduled_events_schema_version', this.data.scheduledEventsSchemaVersion)) || 1));
             this.data.scheduledEvents = Storage.get('tm_scheduled_events', this.data.scheduledEvents) || [];
@@ -10935,6 +10973,7 @@
             Storage.set('tm_tomato_policy_revision', Math.max(0, Number(this.data.tomatoPolicyRevision) || 0));
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
+            Storage.set('tm_calendar_show_tomato_in_list', !!this.data.calendarShowTomatoInList);
             Storage.set('tm_calendar_ics_enabled', !!this.data.calendarIcsEnabled);
             Storage.set('tm_calendar_caldav', this.data.calendarCaldav);
             Storage.set('tm_calendar_ics_scope', this.data.calendarIcsScope === 'selected' ? 'selected' : 'all');
@@ -11137,6 +11176,7 @@
             Storage.set('tm_theme_config', __tmNormalizeThemeConfig(this.data.themeConfig));
             Storage.set('tm_enable_siyuan_theme_colors', !!this.data.enableSiyuanThemeColors);
             Storage.set('tm_enable_group_task_bg_by_group_color', !!this.data.enableGroupTaskBgByGroupColor);
+            Storage.set('tm_table_document_row_color_enabled', this.data.tableDocumentRowColorEnabled !== false);
             Storage.set('tm_ai_enabled', !!this.data.aiEnabled);
             Storage.set('tm_scheduled_events_schema_version', Math.max(1, Math.round(Number(this.data.scheduledEventsSchemaVersion) || 1)));
             Storage.set('tm_scheduled_events', Array.isArray(this.data.scheduledEvents) ? this.data.scheduledEvents : []);
@@ -14770,6 +14810,7 @@
                 enabled: true,
                 taskMetaField: def.field,
             })),
+            { name: 'custom-duration-source', alias: 'duration_source', enabled: true, taskMetaField: 'durationSource' },
             { name: __TM_TASK_REPEAT_RULE_ATTR, alias: 'repeat_rule', enabled: repeatInlineEnabled, taskMetaField: 'repeatRule' },
             { name: __TM_TASK_REPEAT_STATE_ATTR, alias: 'repeat_state', enabled: repeatInlineEnabled, taskMetaField: 'repeatState' },
             { name: __TM_TASK_REPEAT_HISTORY_ATTR, alias: 'repeat_history', enabled: repeatInlineEnabled, taskMetaField: 'repeatHistory' },

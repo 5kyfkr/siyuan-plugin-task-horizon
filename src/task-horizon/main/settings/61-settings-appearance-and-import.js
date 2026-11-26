@@ -452,6 +452,10 @@
                 <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.useGroupColorsForTaskRowBackgroundsWithinGroups")}</span>
                 <input class="b3-switch fn__flex-center" type="checkbox" ${d.enableGroupTaskBgByGroupColor ? 'checked' : ''} onchange="tmToggleGroupTaskBgByGroupColor(this.checked)">
             </label>
+            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
+                <span style="display:flex;flex-direction:column;gap:3px;"><span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.tableDocumentRowColorEnabled")}</span><span style="font-size:11px;color:var(--tm-secondary-text);">${__tmT("settings.tableDocumentRowColorEnabledDesc")}</span></span>
+                <input class="b3-switch fn__flex-center" type="checkbox" ${d.tableDocumentRowColorEnabled !== false ? 'checked' : ''} onchange="tmToggleTableDocumentRowColor(this.checked)">
+            </label>
             <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <span style="display:flex;flex-direction:column;gap:4px;">
                     <span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">${__tmT("settings.priorityIconStyle")}</span>
@@ -621,6 +625,12 @@
 
     window.tmToggleGroupTaskBgByGroupColor = async function(enabled) {
         SettingsStore.data.enableGroupTaskBgByGroupColor = !!enabled;
+        await SettingsStore.save();
+        render();
+    };
+
+    window.tmToggleTableDocumentRowColor = async function(enabled) {
+        SettingsStore.data.tableDocumentRowColorEnabled = !!enabled;
         await SettingsStore.save();
         render();
     };

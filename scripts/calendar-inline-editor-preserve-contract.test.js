@@ -41,7 +41,7 @@ assert.match(
 
 const saveStart = source.indexOf("pop.querySelector('[data-tm-proto-edit-action=\"save\"]')?.addEventListener('click'");
 assert.ok(saveStart >= 0, 'inline editor save handler must remain inspectable');
-const saveEnd = source.indexOf("\n                });\n            };\n            const close = () =>", saveStart);
+const saveEnd = source.indexOf("\n            const close = () => { closeTimeHub(); closePrototypeEventPopover(); };", saveStart);
 assert.ok(saveEnd > saveStart, 'inline editor save handler must have a bounded body');
 const saveBlock = source.slice(saveStart, saveEnd);
 assert.match(saveBlock, /if \(!keepPopoverOpen\) close\(\);/, 'successful auto-save must keep the first-level editor card open');
@@ -49,6 +49,11 @@ assert.equal(
     (saveBlock.match(/if \(!keepPopoverOpen\) close\(\);/g) || []).length,
     2,
     'task-date and schedule save branches must both preserve the first-level card',
+);
+assert.match(
+    source,
+    /querySelectorAll\('\[data-tm-proto-edit-time-card\]'\)\.forEach\(\(input\) => input\.addEventListener\('blur', \(\) => \{\s*if \(input instanceof HTMLInputElement\) applyScheduleTimeInput\(input\);/,
+    'time entry must validate only after hour/minute segment editing ends',
 );
 
 const editorStart = source.indexOf('const showPrototypeScheduleEditorCard =');

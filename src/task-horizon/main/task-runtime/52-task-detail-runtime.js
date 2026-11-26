@@ -6394,6 +6394,7 @@
             const isFocusSummary = mode === 'focus-summary';
             const durationPresets = (mode === 'duration' || isFocusSummary) ? __tmGetDurationPresetOptions() : [];
             const tomatoEstimateValue = __tmNormalizeTomatoCountValue(config.tomatoEstimateValue || '');
+            const durationSource = String(config.durationSource || '').trim() === 'schedule' ? 'schedule' : 'manual';
             const actualTomatoValue = __tmNormalizeActualTomatoCountValue(config.actualTomatoValue || '');
             const spentValue = String(config.spentValue || '').trim();
             let focusSummaryMode = isFocusSummary
@@ -6429,10 +6430,10 @@
                                 </div>
                             </div>
                         ` : ''}
-                        <div class="tm-focus-summary-editor__field"><span>${__tmT("quickbar.estimatedDuration")}</span><div data-tm-duration-picker-slot></div></div>
+                        <div class="tm-focus-summary-editor__field"><small class="tm-focus-estimate-source">${__tmT(durationSource === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual')}</small><div data-tm-duration-picker-slot></div></div>
                     </div>
                     <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="tomato" ${focusSummaryMode === 'tomato' ? '' : 'hidden'}>
-                        <label class="tm-focus-summary-editor__field"><span>${__tmT("quickbar.estimatedPomodoros")}</span><input class="bc-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.emptyOrWholeNumber")}"></label>
+                        <label class="tm-focus-summary-editor__field"><small class="tm-focus-estimate-source">${__tmT('task.estimateSourceManual')}</small><input class="bc-input tm-task-detail-inline-popover__input" data-tm-focus-estimate aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.estimatedPomodoros")}" type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.emptyOrWholeNumber")}"></label>
                     </div>
                     <div class="tm-focus-summary-editor__readonly">
                         <span>${__tmT("task.actualPomodoros2")}<b class="tm-focus-summary-actual">${esc(actualTomatoValue || '0')}</b></span>
@@ -6480,6 +6481,7 @@
             const applyBtn = popover.querySelector('[data-tm-detail-inline-popover-apply]');
             const durationPanel = popover.querySelector('[data-tm-focus-summary-panel="duration"]');
             const tomatoPanel = popover.querySelector('[data-tm-focus-summary-panel="tomato"]');
+            const durationSourceHint = durationPanel?.querySelector('.tm-focus-estimate-source');
             let durationPresetBinding = null;
             const setFocusSummaryMode = (nextMode, options = {}) => {
                 if (!isFocusSummary) return;
@@ -6511,6 +6513,20 @@
                 }
             };
             if (isFocusSummary) {
+                if (input instanceof HTMLInputElement) {
+                    on(input, 'input', () => {
+                        if (durationSourceHint) {
+                            const currentSource = String(input.value || '').trim() === value ? durationSource : 'manual';
+                            durationSourceHint.textContent = __tmT(currentSource === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual');
+                        }
+                    });
+                }
+                if (estimateInput instanceof HTMLInputElement) {
+                    on(estimateInput, 'input', () => {
+                        const hint = tomatoPanel?.querySelector('.tm-focus-estimate-source');
+                        if (hint) hint.textContent = __tmT('task.estimateSourceManual');
+                    });
+                }
                 popover.querySelectorAll('[data-tm-focus-summary-tab]').forEach((btn) => {
                     if (!(btn instanceof HTMLButtonElement)) return;
                     on(btn, 'click', (ev) => {
@@ -9258,6 +9274,7 @@
                     mode: 'focus-summary',
                     title: __tmT("quickbar.durationPomodoro"),
                     value: readHiddenInputValue('duration'),
+                    durationSource: __tmGetTaskDurationSource(getBoundTask()),
                     tomatoEstimateValue: readHiddenInputValue('tomatoEstimateCount'),
                     actualTomatoValue: __tmGetTaskTomatoCount(getBoundTask()),
                     spentValue: __tmGetTaskSpentDisplay(getBoundTask()),

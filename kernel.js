@@ -3863,8 +3863,10 @@
         { id: 'dateMode', get label() { return __tmT("kernel.dateMode"); }, type: 'string', attr: 'custom-task-date-mode', writable: true },
         { id: 'taskCompleteAt', get label() { return __tmT("kernel.completionTime"); }, type: 'datetime', attr: 'custom-task-complete-at', writable: false, system: true },
         { id: 'duration', get label() { return __tmT("kernel.estimatedDuration"); }, type: 'duration', attr: 'custom-duration', writable: true },
+        { id: 'durationSource', type: 'string', attr: 'custom-duration-source', writable: false, system: true },
         { id: 'remark', get label() { return __tmT("kernel.note"); }, type: 'string', attr: 'custom-remark', writable: true },
         { id: 'taskDateColor', get label() { return __tmT("kernel.taskDateColor"); }, type: 'color', attr: 'custom-task-date-color', writable: true, mirror: true },
+        { id: 'taskBackgroundColor', get label() { return __tmT("task.backgroundColor"); }, type: 'string', attr: 'custom-task-background-color', writable: true },
         { id: 'customTime', get label() { return __tmT("kernel.customTime"); }, type: 'string', attr: 'custom-time', writable: true, mirror: true },
         { id: 'milestone', get label() { return __tmT("kernel.milestone"); }, type: 'boolean', attr: 'custom-milestone-event', writable: true },
         { id: 'pinned', get label() { return __tmT("kernel.pin"); }, type: 'boolean', attr: 'custom-pinned', writable: true },
@@ -6985,11 +6987,15 @@
         return runTaskLane(laneID, async () => {
             let row = await getTaskRow(id);
             const normalized = await normalizeTaskPatch(rawPatch, options);
-            const patch = normalized.patch;
+            const patch = { ...normalized.patch };
             if (!Object.keys(patch).length) return taskDTO(row);
             row = await ensureTaskListMutationTarget(id, normalized.registry, row);
             const context = buildAttrContext(row);
             const before = await taskDTO(row);
+            const userEstimateChange = options?.source !== 'schedule-duration-reconcile'
+                && ((own(rawPatch, 'duration') && text(patch.duration) !== text(before.duration))
+                    || (own(rawPatch, 'tomatoEstimateCount') && text(patch.tomatoEstimateCount) !== text(before.tomatoEstimateCount)));
+            if (userEstimateChange) patch.durationSource = '';
             const completion = options?.agentWrite === true ? prepareAgentTaskRecurrence(before, patch, normalized.registry) : null;
             if (!Object.keys(patch).length) return { task: before, completion, changes: {}, undoID: '', refresh: taskMutationRefresh('update', [id], [before.documentID]) };
             if (options?.expected && typeof options.expected === 'object') {
@@ -9220,6 +9226,7 @@
         copy('calendarId', ['calendarId', 'calendarID']);
         copy('color', ['color']);
         copy('plannedMinutes', ['plannedMinutes', 'durationMinutes']);
+        copy('durationExplicit', ['durationExplicit']);
         copy('reminderMode', ['reminderMode']);
         copy('reminderEnabled', ['reminderEnabled']);
         copy('reminderOffsetMin', ['reminderOffsetMin']);
@@ -9233,6 +9240,8 @@
         out.calendarId = text(out.calendarId);
         out.color = text(out.color);
         out.allDay = !!out.allDay;
+        if (own(source, 'durationExplicit')) out.durationExplicit = source.durationExplicit === true;
+        else if (!existing && !own(out, 'durationExplicit')) out.durationExplicit = true;
         if (out.repeatRule != null && typeof out.repeatRule !== 'object') {
             throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleRecurrenceRule"));
         }
@@ -9384,13 +9393,145 @@
         return cloneScheduleSnapshotItems(snapshot.items);
     }
 
-    async function saveSchedules(items) {
+    function getScheduleDurationTaskID(item) {
+        const source = item && typeof item === 'object' ? item : {};
+        return text(source.taskId || source.task_id || source.linkedTaskId || source.linked_task_id);
+    }
+
+    function collectScheduleDurationIntervals(items) {
+        const grouped = new Map();
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            const taskID = getScheduleDurationTaskID(item);
+            const repeatType = text(item?.repeatRule?.type || item?.repeatType || item?.repeat_type || item?.recurrenceType || item?.recurrence_type).toLowerCase();
+            if (!taskID || item?.allDay === true || item?.virtualTask === true
+                || item?.taskDateRecurringException === true || item?.detachedTaskOccurrence === true
+                || /^repeatinst:/.test(taskID) || (repeatType && repeatType !== 'none')) return;
+            const start = Date.parse(text(item?.start));
+            const end = Date.parse(text(item?.end));
+            if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+            const intervals = grouped.get(taskID) || [];
+            intervals.push([start, end]);
+            grouped.set(taskID, intervals);
+        });
+        const totals = new Map();
+        grouped.forEach((intervals, taskID) => {
+            intervals.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+            let total = 0;
+            let currentStart = null;
+            let currentEnd = null;
+            intervals.forEach(([start, end]) => {
+                if (currentStart === null) { currentStart = start; currentEnd = end; return; }
+                if (start <= currentEnd) { currentEnd = Math.max(currentEnd, end); return; }
+                total += currentEnd - currentStart;
+                currentStart = start;
+                currentEnd = end;
+            });
+            if (currentStart !== null) total += currentEnd - currentStart;
+            totals.set(taskID, Math.max(0, Math.round(total / 60000)));
+        });
+        return totals;
+    }
+
+    function formatScheduleDurationValue(minutes, unit) {
+        const total = Math.max(0, Math.round(Number(minutes) || 0));
+        if (!total) return '';
+        if (normalizeDurationUnit(unit) === 'minutes') return String(total);
+        return String(Math.round((total / 60) * 100) / 100);
+    }
+
+    function scheduleDurationMinutesFromTask(task, unit) {
+        const parsed = parseDurationMinutes(task?.duration, unit);
+        return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+    }
+
+    function indexScheduleDurationInputs(items) {
+        const grouped = new Map();
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            const taskID = getScheduleDurationTaskID(item);
+            if (!taskID) return;
+            const entries = grouped.get(taskID) || [];
+            entries.push({
+                id: text(item.id),
+                start: text(item.start),
+                end: text(item.end),
+                allDay: item.allDay === true,
+                durationExplicit: Object.prototype.hasOwnProperty.call(item, 'durationExplicit') ? item.durationExplicit : null,
+                virtualTask: item.virtualTask === true,
+                taskDateRecurringException: item.taskDateRecurringException === true,
+                detachedTaskOccurrence: item.detachedTaskOccurrence === true,
+                repeatRule: item.repeatRule || null,
+            });
+            grouped.set(taskID, entries);
+        });
+        const signatures = new Map();
+        grouped.forEach((entries, taskID) => {
+            entries.sort((a, b) => a.id.localeCompare(b.id));
+            signatures.set(taskID, stableJson(entries));
+        });
+        return signatures;
+    }
+
+    async function reconcileScheduleTaskDurations(previousItems, nextItems, options = {}) {
+        const previousInputs = indexScheduleDurationInputs(previousItems);
+        const nextInputs = indexScheduleDurationInputs(nextItems);
+        const affected = new Set([...previousInputs.keys(), ...nextInputs.keys()]);
+        Array.from(affected).forEach((taskID) => {
+            if (previousInputs.get(taskID) === nextInputs.get(taskID)) affected.delete(taskID);
+        });
+        if (!affected.size) return { updated: 0, skipped: 0, taskIDs: [] };
+        const allNext = Array.isArray(nextItems) ? nextItems : [];
+        const totals = collectScheduleDurationIntervals(allNext);
+        const settings = await getSettings();
+        const unit = normalizeDurationUnit(settings.durationFormat);
+        let updated = 0;
+        let skipped = 0;
+        const taskIDs = [];
+        const changes = [];
+        for (const taskID of affected) {
+            let task;
+            try { task = await taskDTO(taskID); } catch (e) { continue; }
+            if (Number(task?.tomatoEstimateCount || 0) > 0) { skipped += 1; continue; }
+            const source = text(task?.durationSource).toLowerCase();
+            const duration = text(task?.duration);
+            const minutes = totals.get(taskID) || 0;
+            if (source !== 'schedule' && duration) { skipped += 1; continue; }
+            if (source !== 'schedule' && !duration && minutes <= 0) continue;
+            const nextDuration = formatScheduleDurationValue(minutes, unit);
+            const currentMinutes = scheduleDurationMinutesFromTask(task, unit);
+            if (source === 'schedule' && currentMinutes === minutes && (!!duration === (minutes > 0))) continue;
+            try {
+                await applyTaskPatch(taskID, { duration: nextDuration, durationSource: minutes > 0 ? 'schedule' : '' }, {
+                    allowSystem: true,
+                    source: 'schedule-duration-reconcile',
+                    recordUndo: false,
+                    expected: { duration: text(task?.duration), durationSource: text(task?.durationSource), tomatoEstimateCount: task?.tomatoEstimateCount ?? null, done: task?.done === true },
+                    laneID: `schedule-duration:${taskID}`,
+                });
+                updated += 1;
+                taskIDs.push(taskID);
+                changes.push({ taskID, duration: nextDuration, durationSource: minutes > 0 ? 'schedule' : '' });
+            } catch (e) {
+                skipped += 1;
+                try { console.warn('[task-horizon] schedule duration reconcile failed', taskID, e); } catch (e2) {}
+            }
+        }
+        return { updated, skipped, taskIDs, changes };
+    }
+
+    async function saveSchedules(items, options = {}) {
+        await loadSchedules({ allowMissing: true, fresh: true });
+        const previous = cloneScheduleSnapshotItems(state.scheduleSnapshot.items);
         const next = Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : [];
         await writeJson(SCHEDULE_FILE, next);
         state.scheduleSnapshot.status = 'valid';
         state.scheduleSnapshot.items = cloneScheduleSnapshotItems(next);
         state.scheduleSnapshot.record = null;
         state.scheduleSnapshot.loadedAt = Date.now();
+        let durationReconcile = { updated: 0, skipped: 0, taskIDs: [] };
+        if (options.reconcileTaskDurations !== false) {
+            try { durationReconcile = await reconcileScheduleTaskDurations(previous, next, options); } catch (e) { try { console.warn('[task-horizon] schedule duration reconcile failed', e); } catch (e2) {} }
+        }
+        return durationReconcile;
     }
 
     function warmScheduleSnapshot() {
@@ -9427,8 +9568,8 @@
                 if (id && !incomingByID.has(id)) next.push(item);
             });
         }
-        await saveSchedules(next);
-        return { items: next, count: next.length };
+        const durationReconcile = await saveSchedules(next);
+        return { items: next, count: next.length, durationReconcile };
     }
 
     async function querySchedules(input) {
@@ -9458,7 +9599,7 @@
             item.id = text(input && input.id) || token('schedule');
             if (list.some((current) => text(current.id) === item.id)) throw new DomainError(ERROR.CONFLICT, __tmT("kernel.scheduleIdAlreadyExists"));
             list.push(item);
-            await saveSchedules(list);
+            const durationReconcile = await saveSchedules(list);
             let undoID = '';
             if (!options || options.recordUndo !== false) {
                 const expected = stableJson(item);
@@ -9473,7 +9614,7 @@
                 rememberUndo(state.lastUndo);
                 undoID = state.lastUndo.id;
             }
-            return { schedule: item, undoID };
+            return { schedule: item, undoID, durationReconcile };
         });
     }
 
@@ -9492,7 +9633,7 @@
             }
             next.id = id;
             list[index] = next;
-            await saveSchedules(list);
+            const durationReconcile = await saveSchedules(list);
             let undoID = '';
             if (!options || options.recordUndo !== false) {
                 const expected = stableJson(next);
@@ -9507,7 +9648,7 @@
                 rememberUndo(state.lastUndo);
                 undoID = state.lastUndo.id;
             }
-            return { schedule: next, changes: patch, undoID };
+            return { schedule: next, changes: patch, undoID, durationReconcile };
         });
     }
 
@@ -9534,8 +9675,8 @@
             if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.scheduleNotFound"));
             const removed = list[index];
             list.splice(index, 1);
-            await saveSchedules(list);
-            return { deletedScheduleID: id, schedule: removed };
+            const durationReconcile = await saveSchedules(list);
+            return { deletedScheduleID: id, schedule: removed, durationReconcile };
         });
     }
 

@@ -1248,6 +1248,7 @@
                     '' as doc_path,
                     '' as custom_priority,
                     '' as duration,
+                    '' as duration_source,
                     '' as remark,
                     '' as start_date,
                     '' as completion_time,
@@ -1292,6 +1293,7 @@
                     -- 自定义属性
                     attr.custom_priority,
                     attr.duration,
+                    attr.duration_source,
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
@@ -1824,6 +1826,7 @@
                     t.doc_updated,
                     attr.custom_priority,
                     attr.duration,
+                    attr.duration_source,
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
@@ -5331,6 +5334,7 @@
         if (key === 'remark') return __tmNormalizeRemarkMarkdown(value);
         if (key === 'tomatoEstimateCount' || key === 'tomatoCount') return __tmNormalizeTomatoCountValue(value);
         if (key === 'tomatoMinutes' || key === 'tomatoHours') return String(value ?? '').trim();
+        if (key === 'durationSource') return String(value ?? '').trim();
         if (key === 'attachments') return __tmNormalizeTaskAttachmentPaths(value);
         if (key === 'repeatRule') return __tmNormalizeTaskRepeatRule(value);
         if (key === 'repeatState') return __tmNormalizeTaskRepeatState(value);
@@ -5351,6 +5355,7 @@
             });
             return out;
         }
+        if (key === 'taskBackgroundColor') return __tmNormalizeTaskBackgroundColor(value);
         if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'dateMode' || key === 'taskDateColor' || key === 'customTime' || key === 'taskCompleteAt') {
             return String(value ?? '').trim();
         }
@@ -5839,6 +5844,8 @@
         if (startDate) patch.startDate = startDate;
         if (completionTime) patch.completionTime = completionTime;
         if (taskDateColor) patch.taskDateColor = taskDateColor;
+        const taskBackgroundColor = __tmNormalizeTaskBackgroundColor(pick('taskBackgroundColor', 'taskBackgroundColor', 'task_background_color', ...readKeys('taskBackgroundColor')));
+        if (taskBackgroundColor) patch.taskBackgroundColor = taskBackgroundColor;
         if (customTime) patch.customTime = customTime;
         if (customStatus) patch.customStatus = customStatus;
         return patch;
@@ -9191,6 +9198,11 @@
                 target.custom_task_date_color = target.taskDateColor;
                 return;
             }
+            if (key === 'taskBackgroundColor') {
+                target.taskBackgroundColor = __tmNormalizeTaskBackgroundColor(value);
+                target.task_background_color = target.taskBackgroundColor;
+                return;
+            }
             if (key === 'taskCompleteAt') {
                 target.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(value);
                 target.task_complete_at = target.taskCompleteAt;
@@ -9204,6 +9216,11 @@
             if (key === 'duration') {
                 target.duration = String(value ?? '').trim();
                 target.custom_duration = target.duration;
+                return;
+            }
+            if (key === 'durationSource') {
+                target.durationSource = String(value ?? '').trim();
+                target.duration_source = target.durationSource;
                 return;
             }
             if (key === 'tomatoEstimateCount') {
@@ -14194,8 +14211,53 @@
 
     function __tmBindCalendarScheduleUpdated() {
         if (__tmCalendarScheduleUpdatedHandler) return;
-        __tmCalendarScheduleUpdatedHandler = () => {
+        __tmCalendarScheduleUpdatedHandler = (event) => {
             state.todayScheduledSourceReady = false;
+            const durationTaskChanges = Array.isArray(event?.detail?.durationTaskChanges)
+                ? event.detail.durationTaskChanges.filter((item) => item && typeof item === 'object')
+                : [];
+            const durationTaskIds = Array.isArray(event?.detail?.durationTaskIds)
+                ? event.detail.durationTaskIds.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+            const fallbackTaskIds = [];
+            durationTaskChanges.forEach((change) => {
+                const taskId = String(change.taskID || change.taskId || '').trim();
+                if (!taskId) return;
+                const patch = {
+                    duration: String(change.duration || '').trim(),
+                    durationSource: String(change.durationSource || '').trim(),
+                };
+                const task = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
+                const docId = String(task?.root_id || task?.docId || task?.documentID || '').trim();
+                try {
+                    if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
+                    else __tmInvalidateAllSqlCaches();
+                } catch (e) {}
+                const mirrored = __tmApplyTaskFieldPatchToLocalMirrors(taskId, patch);
+                if (!mirrored) {
+                    fallbackTaskIds.push(taskId);
+                    return;
+                }
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                        withFilters: true,
+                        reason: 'schedule-duration-reconcile',
+                        fallback: true,
+                        allowMountedInactive: true,
+                    });
+                } catch (e) { fallbackTaskIds.push(taskId); }
+            });
+            const unmirroredIds = durationTaskIds.filter((id) => !durationTaskChanges.some((change) => String(change.taskID || change.taskId || '').trim() === id));
+            const refreshTaskIds = Array.from(new Set(fallbackTaskIds.concat(unmirroredIds)));
+            if (refreshTaskIds.length) {
+                try {
+                    __tmRefreshViewsAfterTaskMutation({
+                        taskIds: refreshTaskIds,
+                        withFilters: true,
+                        reason: 'schedule-duration-reconcile',
+                    });
+                } catch (e) {}
+            }
             try {
                 if (__tmTodayScheduleRefreshTimer) {
                     clearTimeout(__tmTodayScheduleRefreshTimer);
@@ -14815,7 +14877,7 @@
     function __tmExtractUndoEligibleMetaPatch(patch) {
         const input = (patch && typeof patch === 'object') ? patch : {};
         const out = {};
-        ['customStatus', 'startDate', 'completionTime', 'taskDateColor', 'duration', 'tomatoEstimateCount', 'tomatoCount', 'remark', 'attachments', 'repeatRule', 'repeatState'].forEach((key) => {
+        ['customStatus', 'startDate', 'completionTime', 'taskDateColor', 'taskBackgroundColor', 'duration', 'tomatoEstimateCount', 'tomatoCount', 'remark', 'attachments', 'repeatRule', 'repeatState'].forEach((key) => {
             if (Object.prototype.hasOwnProperty.call(input, key)) out[key] = input[key];
         });
         return out;
@@ -14830,6 +14892,7 @@
             if (key === 'startDate') return __tmT("kernel.startDate");
             if (key === 'completionTime') return __tmT("kernel.dueDate");
             if (key === 'taskDateColor') return __tmT("kernel.taskDateColor");
+            if (key === 'taskBackgroundColor') return __tmT("task.backgroundColor");
             if (key === 'duration') return __tmT("task.duration");
             if (key === 'tomatoEstimateCount') return __tmT("quickbar.estimatedPomodoros");
             if (key === 'tomatoCount') return __tmT("task.actualPomodoros");

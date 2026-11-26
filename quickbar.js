@@ -5200,6 +5200,7 @@
                 'custom-completion-time': readQuickbarTaskMetaAttrValue(data, 'completionTime', ''),
                 'custom-start-date': readQuickbarTaskMetaAttrValue(data, 'startDate', ''),
                 'custom-duration': readQuickbarTaskMetaAttrValue(data, 'duration', ''),
+                'custom-duration-source': String(data['custom-duration-source'] || data.durationSource || data.duration_source || '').trim(),
                 'custom-tomato-estimate-count': normalizeTomatoCountValue(data['custom-tomato-estimate-count'] || data[tomatoEstimateAttrKey] || data.tomatoEstimateCount || data.tomato_estimate_count || ''),
                 'custom-tomato-count': normalizeActualTomatoCountValue(data['custom-tomato-count'] || data[tomatoCountAttrKey] || data.tomatoCount || data.tomato_count || ''),
                 'custom-focus-spent-display': spentDisplay,
@@ -5334,6 +5335,7 @@
                 'custom-completion-time': String(task.completionTime || task.completion_time || readQuickbarTaskMetaAttrValue(task, 'completionTime', '') || '').trim(),
                 'custom-start-date': String(task.startDate || task.start_date || readQuickbarTaskMetaAttrValue(task, 'startDate', '') || '').trim(),
                 'custom-duration': String(task.duration || task.custom_duration || readQuickbarTaskMetaAttrValue(task, 'duration', '') || '').trim(),
+                'custom-duration-source': String(task.durationSource || task.duration_source || '').trim(),
                 'custom-tomato-estimate-count': String(task.tomatoEstimateCount || task.tomato_estimate_count || task.tomatoEstimate || '').trim(),
                 'custom-tomato-count': String(task.tomatoCount || task.tomato_count || '').trim(),
                 'custom-remark': String(task.remark || task.custom_remark || readQuickbarTaskMetaAttrValue(task, 'remark', '') || '').trim(),
@@ -7193,6 +7195,7 @@
             input.classList.add('sy-custom-props-floatbar__input--duration');
 
             const currentDurationValue = String(currentProps['custom-duration'] || '').trim();
+            const currentDurationSource = String(currentProps['custom-duration-source'] || '').trim() === 'schedule' ? 'schedule' : 'manual';
             const currentEstimateValue = normalizeTomatoCountValue(currentProps['custom-tomato-estimate-count'] || '');
             let focusSummaryMode = currentDurationValue ? 'duration' : (currentEstimateValue ? 'tomato' : 'duration');
 
@@ -7223,6 +7226,10 @@
                 });
                 durationPanel.insertBefore(picker.root, input);
             }
+            const durationSourceHint = document.createElement('small');
+            durationSourceHint.className = 'tm-focus-estimate-source';
+            durationSourceHint.textContent = __tmT(currentDurationSource === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual');
+            durationPanel.appendChild(durationSourceHint);
 
             let estimateInput = inputEditor.querySelector('[data-focus-summary-estimate]');
             if (!(estimateInput instanceof HTMLInputElement)) {
@@ -7262,7 +7269,8 @@
             const estimateField = document.createElement('label');
             estimateField.className = 'sy-custom-props-floatbar__focus-field';
             estimateField.setAttribute('data-focus-summary-estimate-field', 'true');
-            estimateField.innerHTML = `<span>${__tmT("quickbar.estimatedPomodoros")}</span>`;
+            estimateField.innerHTML = `<small class="tm-focus-estimate-source">${__tmT('task.estimateSourceManual')}</small>`;
+            estimateInput.setAttribute('aria-label', __tmT("quickbar.estimatedPomodoros"));
             estimateField.appendChild(estimateInput);
             const actions = inputEditor.querySelector('.sy-custom-props-floatbar__input-actions');
             if (actions instanceof HTMLElement) inputEditor.insertBefore(estimateField, actions);
@@ -7359,8 +7367,14 @@
             };
             input.oninput = () => {
                 if (String(input.value || '').trim()) estimateInput.value = '';
+                const source = String(input.value || '').trim() === currentDurationValue ? currentDurationSource : 'manual';
+                durationSourceHint.textContent = __tmT(source === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual');
             };
             estimateInput.oninput = () => {
+                if (normalizeTomatoCountValue(estimateInput.value) !== currentEstimateValue) {
+                    const estimateSourceHint = estimateField.querySelector('.tm-focus-estimate-source');
+                    if (estimateSourceHint) estimateSourceHint.textContent = __tmT('task.estimateSourceManual');
+                }
                 if (!normalizeTomatoCountValue(estimateInput.value)) return;
                 input.value = '';
                 try { input.__tmDurationPicker?.sync?.(); } catch (err) {}

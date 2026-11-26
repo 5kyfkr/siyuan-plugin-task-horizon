@@ -242,6 +242,7 @@
             else if (key === 'completionTime') task.completion_time = value;
             else if (key === 'duration') task.custom_duration = value;
             else if (key === 'remark') task.custom_remark = value;
+            else if (key === 'taskBackgroundColor') task.task_background_color = value;
             else if (key === 'taskDateColor') task.task_date_color = value;
             else if (key === 'customTime') task.custom_time = value;
             else if (key === 'taskCompleteAt') task.task_complete_at = value;

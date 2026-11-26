@@ -226,6 +226,8 @@ test('task index round-trip retains title formatting and the update stamp needed
         __tmCompactTaskIndexValue: (value) => value,
         __tmGetTaskAttachmentMetaMap: () => new Map(), __tmGetTaskAttachmentPaths: () => [],
         __tmHasTaskAttachmentAttrSnapshot: () => false, __tmNormalizeTomatoCountValue: (value) => value,
+        __tmGetTaskBackgroundColor: (task) => String(task?.taskBackgroundColor || task?.task_background_color || ''),
+        __tmNormalizeTaskBackgroundColor: (value) => ['pink', 'amber', 'teal', 'blue', 'purple'].includes(String(value || '')) ? String(value) : '',
         __tmNormalizeTaskAttachmentMetaMap: () => new Map(), __tmSerializeTaskAttachmentMeta: () => '',
         __tmCloneTaskSnapshotValue: (value) => value,
     });
@@ -233,7 +235,7 @@ test('task index round-trip retains title formatting and the update stamp needed
     const helpersEnd = apiSource.indexOf('    function __tmNormalizeTaskListItemMarkdownMarker(', helpersStart);
     vm.runInContext(apiSource.slice(helpersStart, helpersEnd) + functions.join('\n'), context);
     const title = '323232[链接111](baidu.com1111 "666")';
-    const task = { id: id(10), root_id: id(1), updated: '20260925182000', hash: 'abc1234', content: '323232链接111', markdown: `- [ ] ${title}\n  - [ ] child task` };
+    const task = { id: id(10), root_id: id(1), updated: '20260925182000', hash: 'abc1234', content: '323232链接111', markdown: `- [ ] ${title}\n  - [ ] child task`, taskBackgroundColor: 'teal' };
     const entry = context.__tmBuildTaskIndexBlockEntry(task, { id: id(1) });
     const stored = JSON.parse(JSON.stringify(entry));
     const restored = context.__tmRestoreTaskIndexBlockEntry(stored, { id: id(1) });
@@ -241,6 +243,8 @@ test('task index round-trip retains title formatting and the update stamp needed
     assert.equal(restored.hash, task.hash);
     assert.equal(restored.id, task.id);
     assert.equal(restored.content, task.content);
+    assert.equal(entry.taskBackgroundColor, 'teal');
+    assert.equal(restored.taskBackgroundColor, 'teal', 'task colors must survive the fast task-index round trip used when switching views');
     assert.equal(restored.markdown, `- [ ] ${title}`, 'cached list titles retain their link target and tooltip without duplicating descendants');
     for (const sourceTitle of [
         `前 ((20260101000000-abcdefg "静态引用")) 后`,

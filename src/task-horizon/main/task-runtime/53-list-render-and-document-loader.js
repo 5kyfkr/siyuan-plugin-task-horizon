@@ -33,6 +33,7 @@
         const hasTaskRowBudget = () => visitedTaskRows < taskRowLimit;
         const isDark = __tmIsDarkMode();
         const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+        const enableDocRowBg = titleSurface !== 'table' || SettingsStore.data.tableDocumentRowColorEnabled !== false;
         let currentGroupBg = '';
         const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
         const timeBaseColor = isDark
@@ -147,7 +148,7 @@
             if (!enableGroupBg || !task) return '';
             if (state.groupByDocName || state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) {
                 const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
-                return taskDocColor ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
+                return enableDocRowBg && taskDocColor ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
             }
             if (state.groupByTime) {
                 const info = getTimePriorityInfo(task);
@@ -296,7 +297,7 @@
             const rowDragAttrs = useDesktopTaskDragLogic
                 ? `draggable="true" ondragstart="tmDragTaskStart(event, '${taskId}')" ondragend="tmDragTaskEnd(event)"`
                 : 'draggable="false"';
-            let rowHtml = `<tr data-id="${taskId}" data-depth="${depth}" class="${finalRowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} ${rowDragAttrs} ondragenter="tmTaskRowDragOver(event, '${taskId}')" ondragover="tmTaskRowDragOver(event, '${taskId}')" ondragleave="tmTaskRowDragLeave(event, '${taskId}')" ondrop="tmTaskRowDrop(event, '${taskId}')"${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
+            let rowHtml = `<tr data-id="${taskId}" data-depth="${depth}" class="${finalRowClass}"${globalThis.__tmTaskBackgroundAttrs(task)} ${groupBg ? `style="background-color:${groupBg};"` : ''}${rowDragAttrs} ondragenter="tmTaskRowDragOver(event, '${taskId}')" ondragover="tmTaskRowDragOver(event, '${taskId}')" ondragleave="tmTaskRowDragLeave(event, '${taskId}')" ondrop="tmTaskRowDrop(event, '${taskId}')"${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
             for (let i = 0; i < colOrder.length; i += 1) {
                 const col = colOrder[i];
                 switch (col) {
@@ -545,7 +546,7 @@
                 normalRoots.forEach(task => {
                     if (!hasTaskRowBudget()) return;
                     const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
-                    currentGroupBg = (enableGroupBg && taskDocColor) ? __tmGroupBgFromLabelColor(taskDocColor, isDark) : '';
+                    currentGroupBg = enableDocRowBg && enableGroupBg && taskDocColor ? __tmGroupBgFromLabelColor(taskDocColor, isDark) : '';
                     allRows.push(...renderTaskTree(task, 0));
                 });
             }
@@ -655,7 +656,7 @@
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
-                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
+                    currentGroupBg = enableDocRowBg && enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
                     const h2OrderSource = docTasks.concat(alwaysVisibleDocHeadingTasks);
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, h2OrderSource);
                     if (!useDocH2Subgroup) {
@@ -813,7 +814,7 @@
                         if (!hasTaskRowBudget()) return;
                         if (task.root_id) {
                             const taskDocColor = __tmGetDocColorHex(task.root_id, isDark);
-                            currentGroupBg = (enableGroupBg && taskDocColor) ? __tmGroupBgFromLabelColor(taskDocColor, isDark) : '';
+                            currentGroupBg = enableDocRowBg && enableGroupBg && taskDocColor ? __tmGroupBgFromLabelColor(taskDocColor, isDark) : '';
                         } else {
                             currentGroupBg = '';
                         }
@@ -826,7 +827,7 @@
             normalRoots.forEach(task => {
                 if (!hasTaskRowBudget()) return;
                 const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
-                currentGroupBg = (enableGroupBg && taskDocColor) ? __tmGroupBgFromLabelColor(taskDocColor, isDark) : '';
+                currentGroupBg = enableDocRowBg && enableGroupBg && taskDocColor ? __tmGroupBgFromLabelColor(taskDocColor, isDark) : '';
                 allRows.push(...renderTaskTree(task, 0));
             });
         }
@@ -5955,6 +5956,16 @@ if (ev) {
             wrap.appendChild(row);
             return wrap;
         };
+        const createTaskBackgroundColorBlock = () => __tmBuildTaskBackgroundColorPicker(taskId, task, (colorTaskId, color) => {
+            const buttons = menu.querySelectorAll('.tm-task-background-picker__btn');
+            buttons.forEach((button) => { button.disabled = true; });
+            Promise.resolve(globalThis.__tmSetTaskBackgroundColor(colorTaskId, color)).then((ok) => {
+                if (!ok) hint(__tmT('task.updateFailed', { message: '' }), 'error');
+            }).catch((error) => {
+                hint(error?.message || __tmT('task.updateFailed', { message: '' }), 'error');
+            });
+            menu.remove();
+        });
         const taskRepeatRule = __tmNormalizeTaskRepeatRule(task?.repeatRule || task?.repeat_rule || '', {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
@@ -6132,6 +6143,7 @@ if (ev) {
         if (task) {
             menu.appendChild(createDateBlock());
             menu.appendChild(createPriorityBlock());
+            menu.appendChild(createTaskBackgroundColorBlock());
             if (canReviewFsrs) menu.appendChild(createFsrsReviewBlock());
             hasContextTopBlock = true;
         }
@@ -6306,7 +6318,6 @@ if (ev) {
         menu.appendChild(createItem(__tmRenderContextMenuLabel('map-pin', __tmT("task.goToSourceBlock")), async () => {
             try { await window.tmJumpToTask?.(taskId); } catch (e) {}
         }));
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('square-pen', __tmT("task.editContent2")), () => tmEdit(taskId)));
         appendSectionSeparator();
         if (__tmIsRecurringInstanceTask(task)) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', __tmT("task.deleteRecord")), () => {

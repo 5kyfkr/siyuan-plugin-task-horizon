@@ -115,26 +115,60 @@ async function run() {
         assert.equal(await timeInput.getAttribute('type'), 'time', 'the time card is the native time control');
         assert.equal(await timeInput.getAttribute('step'), '60', 'time control supports minute precision');
         await timeInput.fill('10:37');
+        await timeInput.evaluate(input => input.dispatchEvent(new FocusEvent('blur')));
         let scheduleTimes = await page.evaluate(() => ({
             start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
             end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
         }));
         assert.equal(scheduleTimes.start, '2026-09-29T10:37', 'manual time entry keeps the selected minute');
         assert.equal(scheduleTimes.end, '2026-09-29T11:37', 'the end time shifts with the start while preserving duration');
-        await page.locator('[data-tm-proto-edit-time-card="start"]').fill('12:04');
+
+        const endTimeInput = page.locator('[data-tm-proto-edit-time-card="end"]');
+        await endTimeInput.fill('01:00');
+        scheduleTimes = await page.evaluate(() => ({
+            start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
+            end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
+        }));
+        assert.equal(scheduleTimes.end, '2026-09-29T11:37', 'an intermediate hour value is not validated while editing');
+        await endTimeInput.fill('12:00');
+        await endTimeInput.evaluate(input => input.dispatchEvent(new FocusEvent('blur')));
+        scheduleTimes = await page.evaluate(() => ({
+            start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
+            end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
+        }));
+        assert.equal(scheduleTimes.end, '2026-09-29T12:00', 'the completed hour entry is accepted');
+
+        const startTimeInput = page.locator('[data-tm-proto-edit-time-card="start"]');
+        await startTimeInput.fill('12:04');
+        await startTimeInput.evaluate(input => input.dispatchEvent(new FocusEvent('blur')));
         scheduleTimes = await page.evaluate(() => ({
             start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
             end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
         }));
         assert.equal(scheduleTimes.start, '2026-09-29T12:04', 'a second manual entry updates the start');
-        assert.equal(scheduleTimes.end, '2026-09-29T13:04', 'the end time shifts later by the original one-hour duration');
-        await page.locator('[data-tm-proto-edit-time-card="end"]').fill('12:03');
+        assert.equal(scheduleTimes.end, '2026-09-29T13:27', 'the end shifts with the start and preserves the current duration');
+        await endTimeInput.fill('12:03');
+        await endTimeInput.evaluate(input => input.dispatchEvent(new FocusEvent('blur')));
         scheduleTimes = await page.evaluate(() => ({
             start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
             end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
         }));
         assert.equal(scheduleTimes.start, '2026-09-29T12:04', 'an end before the start is rejected');
-        assert.equal(scheduleTimes.end, '2026-09-29T13:04', 'rejected end input keeps the previous value');
+        assert.equal(scheduleTimes.end, '2026-09-29T13:27', 'rejected end input keeps the previous value');
+
+        await startTimeInput.fill('11:04');
+        await startTimeInput.evaluate(input => input.dispatchEvent(new FocusEvent('blur')));
+        await endTimeInput.fill('11:00');
+        scheduleTimes = await page.evaluate(() => document.querySelector('[data-tm-proto-edit-field="end"]')?.value);
+        assert.equal(scheduleTimes, '2026-09-29T12:27', 'an intermediate minute value is not validated while editing');
+        await endTimeInput.fill('11:05');
+        await endTimeInput.evaluate(input => input.dispatchEvent(new FocusEvent('blur')));
+        scheduleTimes = await page.evaluate(() => ({
+            start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
+            end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
+        }));
+        assert.equal(scheduleTimes.start, '2026-09-29T11:04');
+        assert.equal(scheduleTimes.end, '2026-09-29T11:05', 'a completed minute entry after the start is accepted');
         await page.dispatchEvent('body', 'click', { bubbles: true });
         assert.equal(await page.locator('.tm-proto-inline-schedule-editor').count(), 0,
             'ordinary popovers retain outside-click dismissal');

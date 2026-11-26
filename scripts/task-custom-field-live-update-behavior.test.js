@@ -48,6 +48,8 @@ function createHarness(taskOverrides = {}) {
         },
         SettingsStore: { data: {} },
         MetaStore: { set() {} },
+        __tmNormalizeTaskBackgroundColor: (value) => ['pink', 'amber', 'teal', 'blue', 'purple'].includes(String(value || '')) ? String(value) : '',
+        __tmGetTaskBackgroundColor: (task) => String(task?.taskBackgroundColor || task?.task_background_color || ''),
         __tmGetCustomFieldDefs: () => defs,
         __tmGetCustomFieldDefMap: () => new Map(defs.map((field) => [field.id, field])),
         __tmBuildCustomFieldOptionRuntime: () => ({ pathById: new Map() }),

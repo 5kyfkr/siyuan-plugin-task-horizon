@@ -232,6 +232,21 @@ test('existing raw metadata aliases advance and clear with canonical edits', () 
     }
 });
 
+test('task background color updates and clears every live task mirror', () => {
+    const changed = createHarness({ taskBackgroundColor: 'pink', task_background_color: 'pink' });
+    changed.mutate('optimistic', { taskBackgroundColor: 'blue' });
+    for (const task of changed.mirrors) {
+        assert.equal(task.taskBackgroundColor, 'blue');
+        assert.equal(task.task_background_color, 'blue');
+    }
+    const cleared = createHarness({ taskBackgroundColor: 'blue', task_background_color: 'blue' });
+    cleared.mutate('optimistic', { taskBackgroundColor: '' });
+    for (const task of cleared.mirrors) {
+        assert.equal(task.taskBackgroundColor, '');
+        assert.equal(task.task_background_color, '');
+    }
+});
+
 test('rollback restores changed field aliases while preserving unrelated structural values', () => {
     const h = createHarness({ milestone: false, custom_milestone: '', parentTaskId: 'parent-a', priorityScore: 42 });
     h.mutate('optimistic', { milestone: true });

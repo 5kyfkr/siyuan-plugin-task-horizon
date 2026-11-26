@@ -30,6 +30,8 @@ const aliases = {
     'custom-completion-time': 'completionTime',
     custom_task_date_color: 'taskDateColor',
     'custom-task-date-color': 'taskDateColor',
+    task_background_color: 'taskBackgroundColor',
+    'custom-task-background-color': 'taskBackgroundColor',
     custom_pinned: 'pinned',
     'custom-pinned': 'pinned',
     custom_all_day_bottom: 'allDayBottom',
@@ -51,6 +53,9 @@ assert.deepEqual(
     'search projection dependencies must match the title-and-remark search matcher',
 );
 assert.ok(schema.getGroup('scoreSource').includes('pinned'), 'priority-score filters and sorts must depend on pin changes');
+assert.ok(schema.getGroup('calendar').includes('taskBackgroundColor'), 'task color changes must invalidate calendar task snapshots between view switches');
+assert.equal(context.__tmNormalizeTaskBackgroundColor('blue'), 'blue', 'task background colors accept palette values');
+assert.equal(context.__tmNormalizeTaskBackgroundColor('#fff'), '', 'task background colors reject values outside the fixed palette');
 
 assert.match(storeSource, /function __tmGetTaskMetaAttrReadKeys[\s\S]*__tmGetTaskMetaAttrKey[\s\S]*__tmGetTaskMetaAttrAliases[\s\S]*def\.defaultKey/,
     'persistent attribute reads must retain current key, historical aliases, and the default key');

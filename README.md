@@ -6,6 +6,15 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.8
+
+- **Calendar:** optionally show Pomodoro records in list view (off by default), subject to the calendar master switch and record-type filters. Improve inline schedule time editing.
+- **Task colors:** right-click a task to choose a background color or restore the default. Colors appear in the table, checklist, Kanban, whiteboard, and calendar list. In tables, task colors override document row colors, which can be turned off in Appearance settings.
+- **Focus and estimates:** see the percentage of estimated time or Pomodoros used. Linked, non-recurring schedules with specific times automatically fill and update a task’s duration estimate without overwriting manual estimates. The estimate editor shows where the value came from.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.7
 
 - **Homepage:** the home button becomes a back button while the homepage is open.
@@ -13,9 +22,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **Board sets:** by-document child boards inherit heading groups for document groups, all documents, and tab groups. Headings can be collapsed and used to create tasks; documents without headings stay flat. Canceling a child-board editor returns to board-set management and discards unsaved changes.
 - **Calendar:** enter schedule start and end times directly; changing the start time preserves the schedule duration. Fix CalDAV uploads.
 - **Excel export:** fix export failures.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.6
 

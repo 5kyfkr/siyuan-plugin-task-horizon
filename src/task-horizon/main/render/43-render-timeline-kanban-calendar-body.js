@@ -362,7 +362,7 @@
                 const dragAttrs = __tmShouldUseCustomTouchTaskDrag()
                     ? ' draggable="false"'
                     : '';
-                let taskRowHtml = `<tr class="tm-timeline-row ${finalRowClass}" data-id="${taskId}" data-depth="${row.depth}"${dragAttrs}${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
+                let taskRowHtml = `<tr class="tm-timeline-row ${finalRowClass}" data-id="${taskId}" ${globalThis.__tmTaskBackgroundAttrs(task)} data-depth="${row.depth}"${dragAttrs}${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
                 taskRowHtml += __tmRenderTimelineTaskCellsHtml(task, {
                     columnOrder: timelineColumnOrder,
                     customColumnsByKey: timelineCustomColumnsByKey,
@@ -1456,7 +1456,7 @@
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
-                const cardAttrs = `data-id="${id}" data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ${cardDoubleClickAttr}`;
+                const cardAttrs = `data-id="${id}" ${globalThis.__tmTaskBackgroundAttrs(task)} data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ${cardDoubleClickAttr}`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
                     checked: taskClosed,
                     extraClass: isGloballyLocked ? 'tm-operating' : '',

@@ -7509,6 +7509,8 @@
                         : (isValidValue(task['custom-task-date-color']) ? String(task['custom-task-date-color']) : ''))));
         task.task_date_color = task.taskDateColor;
         task.custom_task_date_color = task.taskDateColor;
+        task.taskBackgroundColor = __tmGetTaskBackgroundColor(task);
+        task.task_background_color = task.taskBackgroundColor;
         task.customTime = isValidValue(task.customTime) ? String(task.customTime) : (isValidValue(task.custom_time) ? String(task.custom_time) : '');
         task.customStatus = isValidValue(task.custom_status) ? String(task.custom_status) : (isValidValue(task.customStatus) ? String(task.customStatus) : '');
         task.bookmark = isValidValue(task.bookmark) ? String(task.bookmark) : '';
@@ -7576,6 +7578,9 @@
                 task.taskDateColor = String(meta.taskDateColor || '').trim();
                 task.task_date_color = task.taskDateColor;
                 task.custom_task_date_color = task.taskDateColor;
+            }
+            if (!hasLoadedMetaAttrField('taskBackgroundColor') && !isValidValue(task.taskBackgroundColor) && isValidValue(meta.taskBackgroundColor)) {
+                task.taskBackgroundColor = task.task_background_color = __tmNormalizeTaskBackgroundColor(meta.taskBackgroundColor);
             }
             if (!hasLoadedMetaAttrField('taskCompleteAt') && !isValidValue(task.taskCompleteAt) && isValidValue(meta.taskCompleteAt)) task.taskCompleteAt = meta.taskCompleteAt;
             if (!hasLoadedMetaAttrField('startDate') && !isValidValue(task.startDate) && allowVisibleDateFallback && isValidValue(meta.startDate)) task.startDate = meta.startDate;

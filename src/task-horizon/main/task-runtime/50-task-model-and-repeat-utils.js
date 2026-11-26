@@ -546,6 +546,11 @@
         }
     }
 
+    function __tmGetTaskDurationSource(task) {
+        const raw = String(task?.durationSource || task?.duration_source || '').trim().toLowerCase();
+        return raw === 'schedule' ? 'schedule' : '';
+    }
+
     function __tmGetTaskTomatoSummaryParts(task) {
         const actual = typeof __tmGetTaskTomatoCount === 'function'
             ? __tmGetTaskTomatoCount(task)
@@ -554,7 +559,24 @@
             ? __tmGetTaskTomatoEstimateCount(task)
             : __tmNormalizeTomatoCountValue(task?.tomatoEstimateCount ?? task?.tomato_estimate_count ?? '');
         const spent = __tmGetTaskSpentDisplay(task);
+        // A task has one focus estimate mode. Legacy rows that contain both
+        // values stay in duration mode and are never rendered as mixed values.
         const duration = __tmFormatDurationDisplayValue(task?.duration || '');
+        const plannedMinutes = duration && typeof __tmParseDurationMinutes === 'function'
+            ? Number(__tmParseDurationMinutes(task?.duration))
+            : 0;
+        let percent = '';
+        if (duration && SettingsStore.data.enableTomatoIntegration && Number.isFinite(plannedMinutes) && plannedMinutes > 0) {
+            const focus = __tmGetTaskTomatoFocusValues(task);
+            const amount = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() === 'hours'
+                ? Number(focus.tomatoHours || 0) * 60
+                : Number(focus.tomatoMinutes || 0);
+            if (Number.isFinite(amount)) percent = ` ${Math.round(amount / plannedMinutes * 100)}%`;
+        } else if (!duration && SettingsStore.data.enableTomatoIntegration && estimate) {
+            const target = Number(estimate);
+            const amount = Number(actual || 0);
+            if (Number.isFinite(target) && target > 0 && Number.isFinite(amount)) percent = ` ${Math.round(amount / target * 100)}%`;
+        }
         return {
             actual,
             actualNumber: Number(actual || 0),
@@ -562,6 +584,8 @@
             estimate,
             spent,
             duration,
+            durationSource: __tmGetTaskDurationSource(task),
+            percent,
         };
     }
 
@@ -570,12 +594,8 @@
         const actualForPlan = parts.actual || '0';
         const durationProgress = parts.duration ? `${parts.spent || '0'}/${parts.duration}` : '';
         const tomatoPlanText = parts.estimate ? __tmT("quickbar.pomodoro2", { actualForPlan: actualForPlan, estimate: parts.estimate }) : '';
-        if (parts.duration) {
-            return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
-        }
-        if (parts.estimate) {
-            return `${tomatoPlanText}${parts.spent ? ` ${parts.spent}` : ''}`.trim();
-        }
+        if (parts.duration) return `${durationProgress}${parts.percent}`;
+        if (parts.estimate) return `${tomatoPlanText}${parts.percent}`.trim();
         return parts.spent || '';
     }
 
@@ -601,12 +621,8 @@
         const spentHtml = (value) => esc(String(value ?? '').trim());
         const durationProgress = parts.duration ? `${spentHtml(parts.spent || '0')}/${esc(parts.duration)}` : '';
         const tomatoPlanHtml = parts.estimate ? `${__tmRenderTomatoIconHtml()} ${actualHtml(actualForPlan)}/${esc(parts.estimate)}` : '';
-        if (parts.duration) {
-            return `${tomatoPlanHtml ? `${tomatoPlanHtml} ` : ''}${durationProgress}`.trim();
-        }
-        if (parts.estimate) {
-            return `${tomatoPlanHtml}${parts.spent ? ` ${spentHtml(parts.spent)}` : ''}`.trim();
-        }
+        if (parts.duration) return `${durationProgress}${esc(parts.percent)}`;
+        if (parts.estimate) return `${tomatoPlanHtml}${esc(parts.percent)}`.trim();
         if (parts.spent) return spentHtml(parts.spent);
         return '';
     }

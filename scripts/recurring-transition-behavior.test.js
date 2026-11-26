@@ -18,6 +18,7 @@ let operationSequence = 0;
 const day = value => value instanceof Date ? [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-') : String(value || '').slice(0, 10);
 const context = vm.createContext({ Date, Intl, Math, Number, String, JSON, Set, Map, WeakMap, WeakSet, Array, Object, TextEncoder,
     __tmNormalizeTaskCompleteAtValue: value => String(value || ''),
+    __tmGetTaskBackgroundColor: task => String(task?.taskBackgroundColor || task?.task_background_color || ''),
     __tmCreateMutationOperationId: () => 'generated-' + (++operationSequence),
     __tmIsTaskDoneEffective: task => task.done === true && !task.repeatState?.pendingNativeDoneReset,
 });

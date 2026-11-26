@@ -65,6 +65,7 @@ function createRuntime(options = {}) {
         __tmGetSettingsFieldFingerprint: (value) => JSON.stringify(value || {}),
         __tmGetCustomFieldDefMap: () => new Map(),
         __tmNormalizeCustomFieldValue: (_field, value) => value,
+        __tmGetTaskBackgroundColor: () => '',
         __tmReadJsonFile: async () => ({}),
         __tmMergeCustomTaskOrderStore: (local) => local || {},
         __tmGetTaskAttachmentPaths: () => [],

@@ -56,6 +56,7 @@ const normalizeRecords = readFunction('normalizeCalendarTomatoRecords', {
 const buildEvents = readFunction('buildEventsFromRecords', {
     normalizeCalendarTomatoRecords: normalizeRecords,
     normalizeCalendarTomatoRecord: normalizeRecord,
+    shouldShowCalendarTomatoInView: (settings, viewType) => !String(viewType || '').trim().startsWith('list') || settings.showTomatoInList === true,
     shouldShowMode: (mode, settings) => String(mode || '').trim() !== 'break' || settings.showBreak === true,
     modeLabel: () => '专注',
     resolveModeColor: (mode, settings) => settings.colorFocus,

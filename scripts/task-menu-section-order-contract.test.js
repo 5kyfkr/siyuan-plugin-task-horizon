@@ -33,6 +33,16 @@ const detailMoreActions = segment(
     'function __tmBuildTaskDetailMoreActions',
     'function __tmOpenTaskDetailMoreMenu'
 );
+const detailMoreMenuRender = segment(
+    read('src/task-horizon/main/30-dialogs-and-ui-foundation.js'),
+    'function __tmOpenTaskDetailMoreMenu',
+    'document.body.appendChild(menu);'
+);
+const detailMoreColorRender = segment(
+    detailMoreMenuRender,
+    'if (item.taskBackgroundColorPicker)',
+    'menu.appendChild(__tmBuildTaskDetailMoreMenuItem'
+);
 
 assertOrdered(contextMenu, [
     "__tmRenderContextMenuLabel('pin'",
@@ -47,7 +57,6 @@ assertOrdered(contextMenu, [
     "__tmRenderContextMenuLabel('bot', 'AI')",
     "__tmRenderContextMenuLabel('file-text', '任务详情')",
     "__tmRenderContextMenuLabel('map-pin', '跳转到原块')",
-    "__tmRenderContextMenuLabel('square-pen', '修改内容')",
     'appendSectionSeparator();',
     "__tmRenderContextMenuLabel('trash-2'",
 ], 'task context menu sections');
@@ -55,9 +64,10 @@ assertOrdered(contextMenu, [
 const aiAndDirectTaskActions = segment(
     contextMenu,
     "__tmRenderContextMenuLabel('bot', 'AI')",
-    "__tmRenderContextMenuLabel('square-pen', '修改内容')"
+    'appendSectionSeparator();'
 );
-assert.doesNotMatch(aiAndDirectTaskActions, /appendSectionSeparator\(\)/, 'detail, jump, and edit must stay directly below AI without a separate section');
+assert.doesNotMatch(aiAndDirectTaskActions, /appendSectionSeparator\(\)/, 'detail and jump must stay directly below AI without a separate section');
+assert.doesNotMatch(contextMenu, /square-pen|task\.editContent2/, 'task right-click menu must not include the edit-content action');
 
 const contextCopyMenu = segment(
     contextMenu,
@@ -88,6 +98,8 @@ assert.ok(
 );
 
 assertOrdered(detailMoreActions, [
+    'taskBackgroundColorPicker: true',
+    'actions.push({ separator: true });',
     "label: pinned ? '取消置顶' : '置顶'",
     "label: '提醒'",
     "label: '开始专注'",
@@ -102,5 +114,32 @@ assertOrdered(detailMoreActions, [
     'actions.push({ separator: true });',
     "label: '删除任务'",
 ], 'task detail more menu sections');
+assert.ok(detailMoreMenuRender.includes('const task = globalThis.__tmTaskBoundary?.getTask?.(tid)'),
+    'the task detail more menu must resolve its task before rendering task-specific controls');
+assert.ok(detailMoreMenuRender.includes('__tmBuildTaskBackgroundColorPicker(tid, task'),
+    'the task detail more menu must build its color palette with the resolved task');
+assert.ok(detailMoreColorRender.includes('menu.appendChild(__tmBuildTaskBackgroundColorPicker(tid, task'),
+    'the task detail more menu must display the color palette inline');
+assert.doesNotMatch(detailMoreColorRender, /__tmBuildTaskDetailMoreSubmenuItem/,
+    'the task detail color palette must not be hidden in a second-level menu');
+assert.match(detailMoreActions, /if \(item\.taskBackgroundColorPicker === true\) \{\s*cleaned\.push\(item\);\s*return;/,
+    'the task detail more menu must preserve the color-picker action when filtering menu items');
+
+assert.match(read('task-horizon.css'), /\.tm-task-background-picker__btn \{[^}]*border-radius: 7px;/,
+    'task background swatches must keep the same rounded-square selection style across menus');
+const taskStyles = read('task-horizon.css');
+assert.ok(/\.tm-task-background-picker__btn \{[^}]*box-sizing: border-box;[^}]*flex: 0 0 26px;[^}]*width: 26px;[^}]*height: 26px;/.test(taskStyles),
+    'task background color buttons must have a fixed square box');
+assert.ok(/\.tm-task-background-picker__row \{[^}]*gap: 4px;/.test(taskStyles),
+    'task background swatch buttons must have compact horizontal spacing');
+for (const selector of ['.tm-task-context-timer', '.tm-task-context-date', '.tm-task-context-priority']) {
+    const pattern = new RegExp(selector.replace(/\./g, '\\.') + '\\s*\\{[^}]*padding: 6px 10px 2px;');
+    assert.ok(pattern.test(taskStyles), `${selector} must use compact bottom spacing`);
+}
+assert.ok(/#tm-task-context-menu \.tm-task-context-timer__slider-row \{\s*padding-bottom: 2px;/.test(taskStyles),
+    'task context timer slider must not leave excess space before date actions');
+assert.ok(/#tm-task-context-menu \.tm-task-background-picker \{\s*padding-bottom: 4px;/.test(taskStyles),
+    'desktop context color swatches must have a little breathing room above the divider');
+
 
 console.log('task menu section order contract tests passed');

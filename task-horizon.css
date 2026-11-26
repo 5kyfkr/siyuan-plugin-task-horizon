@@ -134,6 +134,30 @@
     --tm-checklist-parent-toggle-color: rgba(71, 85, 105, 0.56);
 }
 
+
+/* Task background colors share one data attribute across task surfaces. */
+.tm-task-background-picker { min-width: 0; padding: 6px 10px 2px; box-sizing: border-box; }
+#tm-task-context-menu .tm-task-background-picker { padding-bottom: 4px; }
+.tm-task-background-picker__title { margin: 0 0 6px; color: var(--b3-theme-on-surface, var(--tm-secondary-text)); font-size: 12px; line-height: 1.2; }
+.tm-task-background-picker__row { display: flex; align-items: center; gap: 4px; }
+.tm-task-background-picker__btn { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; flex: 0 0 26px; width: 26px; height: 26px; min-width: 26px; min-height: 26px; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--tm-secondary-text); cursor: pointer; }
+.tm-task-background-picker__btn::before { width: 14px; height: 14px; border: 1px solid color-mix(in srgb, var(--tm-text-color) 20%, transparent); border-radius: 50%; background: var(--tm-task-background-swatch, transparent); content: ""; }
+.tm-task-background-picker__btn--reset::before { display: none; }
+.tm-task-background-picker__btn:hover, .tm-task-background-picker__btn:focus-visible { outline: none; border-color: color-mix(in srgb, var(--tm-primary-color) 44%, transparent); background: color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-hover-bg)); }
+.tm-task-background-picker__btn.is-active { border-color: var(--tm-primary-color); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 24%, transparent); }
+
+[data-tm-task-background="pink"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 82%, #d78fa5 18%); }
+[data-tm-task-background="amber"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 82%, #bc8b3f 18%); }
+[data-tm-task-background="teal"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 82%, #458a7c 18%); }
+[data-tm-task-background="blue"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 82%, #527eaf 18%); }
+[data-tm-task-background="purple"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 82%, #8064ac 18%); }
+
+:root[data-theme-mode="dark"] [data-tm-task-background="pink"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 76%, #d78fa5 24%); }
+:root[data-theme-mode="dark"] [data-tm-task-background="amber"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 76%, #bc8b3f 24%); }
+:root[data-theme-mode="dark"] [data-tm-task-background="teal"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 76%, #458a7c 24%); }
+:root[data-theme-mode="dark"] [data-tm-task-background="blue"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 76%, #527eaf 24%); }
+:root[data-theme-mode="dark"] [data-tm-task-background="purple"] { --tm-task-background-fill: color-mix(in srgb, var(--tm-card-bg, var(--card, var(--tm-bg-color))) 76%, #8064ac 24%); }
+
 [data-theme-mode="dark"] {
     --tm-pinned-color: #a6b6c9;
     --tm-bg-color: #1e1e1e;
@@ -846,9 +870,20 @@
 .tm-focus-summary-editor__field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
     font-size: 12px;
     color: var(--tm-secondary-text);
+}
+
+.tm-focus-estimate-source {
+    margin-top: 8px;
+    color: var(--tm-secondary-text);
+    font-size: 11px;
+    font-weight: 400;
+}
+
+.tm-focus-summary-editor__panel[data-tm-focus-summary-panel="tomato"] .tm-focus-estimate-source {
+    margin-top: 0;
 }
 
 .tm-focus-summary-editor__field + .tm-focus-summary-editor__field {
@@ -882,14 +917,14 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
-    margin-top: 8px;
+    margin-top: 0;
     font-size: 12px;
     color: var(--tm-secondary-text);
 }
 
 .tm-focus-summary-editor__readonly span {
     min-width: 0;
-    padding: 5px 6px;
+    padding: 3px 6px;
     border-radius: 6px;
     background: var(--tm-hover-bg);
     overflow: hidden;
@@ -1965,7 +2000,7 @@
 
 .tm-task-context-timer {
     min-width: 0;
-    padding: 6px 10px 8px;
+    padding: 6px 10px 2px;
     box-sizing: border-box;
 }
 
@@ -2039,6 +2074,10 @@
     padding: 1px 2px 7px;
     border-radius: 6px;
     transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+#tm-task-context-menu .tm-task-context-timer__slider-row {
+    padding-bottom: 2px;
 }
 
 .tm-task-context-timer__slider,
@@ -2221,7 +2260,7 @@
 
 .tm-task-context-date {
     min-width: 0;
-    padding: 6px 10px 8px;
+    padding: 6px 10px 2px;
     box-sizing: border-box;
 }
 
@@ -2397,7 +2436,7 @@
 
 .tm-task-context-priority {
     min-width: 0;
-    padding: 6px 10px 8px;
+    padding: 6px 10px 2px;
     box-sizing: border-box;
 }
 
@@ -28552,4 +28591,19 @@ th[data-col] {
     .tm-task-template-preview-tree { max-height: min(290px, calc(var(--tm-quick-add-viewport-height, 100dvh) - 260px)); }
     .tm-task-template-row { min-height: 38px; }
     .tm-task-template-manager > footer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+}
+
+/* Keep task tints visible after each view's base and hover rules. */
+.tm-table tbody tr[data-tm-task-background]:not([data-tm-task-background=""]) > td:not(.tm-cell-empty),
+#tmTimelineLeftTable tbody tr[data-tm-task-background]:not([data-tm-task-background=""]) > td:not(.tm-cell-empty) {
+    background-color: var(--tm-task-background-fill) !important;
+}
+.tm-checklist-item[data-tm-task-background]:not([data-tm-task-background=""]):not(.tm-timer-focus):not(.tm-task-drop--before):not(.tm-task-drop--after):not(.tm-task-drop--child):not(.tm-task-drop--child-top):not(.tm-task-drop--forbidden) {
+    background: var(--tm-task-background-fill) !important;
+}
+.tm-kanban-card[data-tm-task-background]:not([data-tm-task-background=""]):not(.tm-kanban-card--dragging):not(.tm-kanban-card--child-drop-candidate):not(.tm-kanban-card--child-drop-ready):not(.tm-timer-focus) {
+    background: var(--tm-task-background-fill, var(--card)) !important;
+}
+.tm-whiteboard-stream-task-head[data-tm-task-background]:not([data-tm-task-background=""]) {
+    background: var(--tm-task-background-fill) !important;
 }

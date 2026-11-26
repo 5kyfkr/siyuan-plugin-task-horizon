@@ -5848,6 +5848,13 @@ return false;
             : {};
         const marker = Object.keys(statusPatch).length ? (__tmResolveTaskMarkdownMarker(task) || __tmResolveTaskMarker(task)) : '';
         const projectionPatch = { ...normalizedPatch };
+        if (options?.source !== 'schedule-duration-reconcile'
+            && ((Object.prototype.hasOwnProperty.call(patch || {}, 'duration')
+                    && String(normalizedPatch.duration || '').trim() !== String(task?.duration || task?.custom_duration || '').trim())
+                || (Object.prototype.hasOwnProperty.call(patch || {}, 'tomatoEstimateCount')
+                    && String(normalizedPatch.tomatoEstimateCount || '').trim() !== String(__tmGetTaskTomatoEstimateCount(task) || '').trim()))) {
+            projectionPatch.durationSource = '';
+        }
         if (statusPatch.customStatus) {
             const targetStatus = __tmFindStatusOptionById(statusPatch.customStatus);
             if (targetStatus) {
@@ -8726,6 +8733,7 @@ return false;
                 requestFallback(summary);
             } catch (e) {}
         }
+
         if (hasDonePatch && typeof calApi.syncTaskDoneInPlace === 'function') {
             try {
                 calApi.syncTaskDoneInPlace(tid, !!nextPatch.done, {
@@ -8764,10 +8772,24 @@ return false;
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
         }
         const viewMode = String(state.viewMode || '').trim();
+        let taskBackgroundPatched = false;
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'taskBackgroundColor')) {
+            try {
+                const color = __tmNormalizeTaskBackgroundColor(nextPatch.taskBackgroundColor);
+                document.querySelectorAll('[data-tm-task-background-id]').forEach((node) => {
+                    if (String(node.getAttribute('data-tm-task-background-id') || '') !== tid) return;
+                    node.setAttribute('data-tm-task-background', color);
+                });
+                taskBackgroundPatched = true;
+            } catch (e) {}
+        }
         const refreshWithFilters = projectionManaged ? false : __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
         const needsProjectionRefresh = projectionManaged
             ? opts.projectionRequired === true
             : __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'taskBackgroundColor')) {
+            try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+        }
         const fallbackNeeded = projectionManaged ? false : __tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts);
         const suppressChecklistDetailSaveRefresh = __tmShouldSuppressChecklistDetailSaveRefresh(tid, nextPatch, opts);
         const allowMountedInactive = opts.allowMountedInactive === true
@@ -8794,7 +8816,7 @@ return false;
             ? Object.fromEntries(Object.entries(nextPatch).filter(([key]) => key !== 'content' && key !== 'markdown'))
             : nextPatch;
         const hasControllerPatch = Object.keys(controllerPatch).length > 0;
-        let refreshed = hasContentPatch ? !!__tmPatchVisibleTaskContentInDOM(tid) : false;
+        let refreshed = taskBackgroundPatched || (hasContentPatch ? !!__tmPatchVisibleTaskContentInDOM(tid) : false);
         if (hasContentPatch && viewMode === 'timeline') {
             refreshed = !!__tmUpdateTimelineTaskInDOM(tid) || refreshed;
         }
@@ -10477,6 +10499,7 @@ return false;
             editor.appendChild(title);
 
             const durationValue = String(task.duration || '');
+            const durationSource = __tmGetTaskDurationSource(task);
             const estimateValue = __tmGetTaskTomatoEstimateCount(task);
             let activeMode = durationValue ? 'duration' : (estimateValue ? 'tomato' : 'duration');
 
@@ -10502,7 +10525,7 @@ return false;
 
             const durationRow = document.createElement('div');
             durationRow.className = 'tm-focus-summary-editor__field';
-            durationRow.innerHTML = `<span>${__tmT("quickbar.estimatedDuration")}</span><div data-tm-duration-picker-slot></div>`;
+            durationRow.innerHTML = `<small class="tm-focus-estimate-source">${__tmT(durationSource === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual')}</small><div data-tm-duration-picker-slot></div>`;
             durationPanel.appendChild(durationRow);
             editor.appendChild(durationPanel);
             const durationSlot = durationRow.querySelector('[data-tm-duration-picker-slot]');
@@ -10518,16 +10541,27 @@ return false;
                 }
             }
             const durationInput = durationRow.querySelector('[data-tm-focus-duration]');
+            const durationSourceHint = durationRow.querySelector('.tm-focus-estimate-source');
+            durationInput?.addEventListener('input', () => {
+                if (durationSourceHint) {
+                    const currentSource = String(durationInput.value || '').trim() === durationValue ? durationSource : 'manual';
+                    durationSourceHint.textContent = __tmT(currentSource === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual');
+                }
+            });
 
             const estimatePanel = document.createElement('div');
             estimatePanel.className = 'tm-focus-summary-editor__panel';
             estimatePanel.setAttribute('data-tm-focus-summary-panel', 'tomato');
             const estimateRow = document.createElement('label');
             estimateRow.className = 'tm-focus-summary-editor__field';
-            estimateRow.innerHTML = `<span>${__tmT("quickbar.estimatedPomodoros")}</span><input type="number" min="0" step="1" inputmode="numeric" class="bc-input" data-tm-focus-estimate placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.emptyOrWholeNumber")}" value="${esc(estimateValue)}">`;
+            estimateRow.innerHTML = `<small class="tm-focus-estimate-source">${__tmT('task.estimateSourceManual')}</small><input aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.estimatedPomodoros")}" type="number" min="0" step="1" inputmode="numeric" class="bc-input" data-tm-focus-estimate placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.emptyOrWholeNumber")}" value="${esc(estimateValue)}">`;
             estimatePanel.appendChild(estimateRow);
             editor.appendChild(estimatePanel);
             const estimateInput = estimateRow.querySelector('[data-tm-focus-estimate]');
+            estimateInput?.addEventListener('input', () => {
+                const hint = estimateRow.querySelector('.tm-focus-estimate-source');
+                if (hint) hint.textContent = __tmT('task.estimateSourceManual');
+            });
 
             const readonly = document.createElement('div');
             readonly.className = 'tm-focus-summary-editor__readonly';
@@ -10543,6 +10577,10 @@ return false;
                     onSelect: async (nextValue) => {
                         durationInput.value = String(nextValue || '').trim();
                         if (durationInput.value && estimateInput instanceof HTMLInputElement) estimateInput.value = '';
+                        if (durationSourceHint) {
+                            const currentSource = durationInput.value === durationValue ? durationSource : 'manual';
+                            durationSourceHint.textContent = __tmT(currentSource === 'schedule' ? 'task.estimateSourceSchedule' : 'task.estimateSourceManual');
+                        }
                     },
                     focusInputOnSelect: true,
                     selectInput: true,

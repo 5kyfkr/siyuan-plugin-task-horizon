@@ -34,6 +34,15 @@ assert.match(detail, /data-tm-duration-picker-slot/, 'detail focus-summary must 
 assert.match(detail, /__tmCreateDurationPicker\(\{[\s\S]*data-tm-detail-inline-popover-input/, 'detail popover must build the shared picker');
 assert.match(detail, /const picker = target\.__tmDurationPicker;/, 'detail focus must prefer the picker API');
 assert.match(inline, /data-tm-duration-picker-slot/, 'inline focus-summary must contain a picker slot');
+assert.doesNotMatch(detail, /<span>\$\{__tmT\(\"quickbar\.estimatedDuration\"\)\}<\/span><small class=\"tm-focus-estimate-source\"/, 'detail duration field must not repeat its tab title above the source hint');
+assert.doesNotMatch(detail, /<span>\$\{__tmT\(\"quickbar\.estimatedPomodoros\"\)\}<\/span><small class=\"tm-focus-estimate-source\"/, 'detail pomodoro field must not repeat its tab title above the source hint');
+assert.doesNotMatch(inline, /<span>\$\{__tmT\(\"quickbar\.estimatedDuration\"\)\}<\/span><small class=\"tm-focus-estimate-source\"/, 'inline duration field must not repeat its tab title above the source hint');
+assert.doesNotMatch(inline, /<span>\$\{__tmT\(\"quickbar\.estimatedPomodoros\"\)\}<\/span><small class=\"tm-focus-estimate-source\"/, 'inline pomodoro field must not repeat its tab title above the source hint');
+assert.doesNotMatch(quickbar, /estimateField\.innerHTML = `\<span>\$\{__tmT\(\"quickbar\.estimatedPomodoros\"\)\}\<\/span>/, 'quickbar pomodoro field must not repeat its tab title above the source hint');
+assert.match(detail, /data-tm-focus-estimate aria-label=/, 'detail pomodoro estimate input must retain an accessible name');
+assert.match(inline, /aria-label=.*quickbar\.estimatedPomodoros/, 'inline pomodoro estimate input must retain an accessible name');
+assert.match(quickbar, /estimateInput\.setAttribute\('aria-label'/, 'quickbar pomodoro estimate input must retain an accessible name');
+
 assert.match(inline, /__tmCreateDurationPicker\(\{[\s\S]*data-tm-focus-duration/, 'inline editor must build the shared picker');
 assert.match(inline, /const picker = target\.__tmDurationPicker;/, 'inline focus must prefer the picker API');
 assert.match(quickbar, /__tmCreateDurationPicker\(\{[\s\S]*storageInput: input/, 'quickbar must reuse its main input as the storage value');
@@ -48,6 +57,11 @@ assert.match(api, /formatPresetLabel/, 'preset chips must render formatted label
 assert.match(api, /data-tm-duration-preset-value="\$\{esc\(value\)\}"/, 'preset chips must keep the raw numeric value');
 assert.match(css, /\.tm-duration-picker__input/, 'picker styles must exist');
 assert.match(css, /width: min\(252px, calc\(100vw - 20px\)\)/, 'focus-summary panels must widen to 252px');
+assert.match(css, /\.tm-focus-summary-editor__field \{[^}]*gap: 8px;/, 'estimate source hint and input must have clearer separation');
+assert.match(css, /\.tm-focus-estimate-source \{[^}]*margin-top: 8px;/, 'estimate source hint must have breathing room above');
+assert.match(css, /\.tm-focus-summary-editor__panel\[data-tm-focus-summary-panel="tomato"\] \.tm-focus-estimate-source \{[^}]*margin-top: 0;/, 'pomodoro source hint must stay close to its tab');
+assert.match(css, /\.tm-focus-summary-editor__readonly \{[^}]*margin-top: 0;/, 'actual focus values must sit closer to the estimate input');
+assert.match(css, /\.tm-focus-summary-editor__readonly span \{[^}]*padding: 3px 6px;/, 'actual focus values must use compact vertical padding');
 
 const actions = read('src/task-horizon/main/settings/70-doc-group-and-settings-actions.js');
 const settingsScreen = read('src/task-horizon/main/settings/60-settings-screen.js');

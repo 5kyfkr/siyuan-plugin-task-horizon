@@ -62,6 +62,7 @@ const context = vm.createContext({
     __tmHasPendingVisibleDatePersistence: () => false,
     __tmHasPendingTaskFieldPersistence: () => false,
     __tmNormalizeTaskPriorityValue: value => String(value || ''),
+    __tmGetTaskBackgroundColor: task => String(task?.taskBackgroundColor || task?.task_background_color || ''),
     __tmParseTaskLooseBoolean: value => value === true || value === '1',
     __tmApplyTaskAttachmentPathsToTask() {},
     __tmGetTaskAttachmentPaths: () => [],

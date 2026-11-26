@@ -729,7 +729,10 @@
                 return !!settings?.linkDockTomato && settings?.showTaskReminders !== false;
             }
             if (source === 'tomato') {
-                if (!settings?.linkDockTomato || settings?.showTomatoMaster === false) return false;
+                if (!settings?.linkDockTomato
+                    || settings?.showTomatoMaster === false
+                    || !shouldShowMode(event.extendedProps?.mode, settings)
+                    || !shouldShowCalendarTomatoInView(settings, viewType)) return false;
                 return event.extendedProps?.__tmDayPanelOnly === true
                     || !(settings?.monthAggregate && String(viewType || '').trim() === 'dayGridMonth');
             }
@@ -5265,6 +5268,10 @@
 
     function isCalendarListViewType(viewType) {
         return String(viewType || '').trim().startsWith('list');
+    }
+
+    function shouldShowCalendarTomatoInView(settings, viewType) {
+        return !isCalendarListViewType(viewType) || settings?.showTomatoInList === true;
     }
 
     function resolveCalendarScheduleEventTitleText(eventApi, fallback = __tmT("kernel.schedule")) {
@@ -9815,6 +9822,7 @@
         return {
             enabled: !!s.calendarEnabled,
             linkDockTomato: !!s.calendarLinkDockTomato,
+            showTomatoInList: s.calendarShowTomatoInList === true,
             icsEnabled: !!s.calendarIcsEnabled,
             icsProvider: ['chain', 'webdav', 's3'].includes(s.calendarIcsProvider) ? s.calendarIcsProvider : 'chain',
             icsPublishMode: String(s.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto',
@@ -13092,6 +13100,7 @@
             end,
             calendarId,
             durationMin: safeMin,
+            durationExplicit: true,
             allDay,
             externalDropKey,
         });
@@ -14927,6 +14936,8 @@
         state.calendarMutationVersion = Math.max(Number(state.calendarMutationVersion) || 0, version);
         suppressReminderCalendarRefetchAfterScheduleMutation(String(opts.reason || 'save-schedule-all').trim() || 'save-schedule-all');
         let scheduleRecordsToRetain = [];
+        let durationTaskIds = [];
+        let durationTaskChanges = [];
         try {
             const nextById = new Map(list.map((item) => [getScheduleSaveItemId(item), item]).filter(([id]) => !!id));
             scheduleRecordsToRetain = previousList.filter((previous) => {
@@ -14945,6 +14956,8 @@
             if (kernelSave) {
                 const result = await kernelSave(list, opts);
                 if (!result || result.ok !== true) throw new Error(String(result?.error?.message || __tmT("calendar.kernelScheduleServiceSaveFailed")));
+                durationTaskIds = Array.isArray(result.data?.durationReconcile?.taskIDs) ? result.data.durationReconcile.taskIDs : [];
+                durationTaskChanges = Array.isArray(result.data?.durationReconcile?.changes) ? result.data.durationReconcile.changes : [];
                 if (Array.isArray(result.data?.items)) {
                     const { out } = normalizeScheduleList(result.data.items);
                     const canonicalOut = out.map((item) => serializeScheduleForSave(item));
@@ -14993,6 +15006,8 @@
                     scheduleId,
                     scheduleIds,
                     scheduleChanges,
+                    durationTaskIds,
+                    durationTaskChanges,
                     rangeStart: String(opts.rangeStart || '').trim(),
                     rangeEnd: String(opts.rangeEnd || '').trim(),
                 },
@@ -17777,6 +17792,7 @@
             reminderEnabled: null,
             reminderOffsetMin: null,
             plannedMinutes: Math.max(1, Math.round((endMs - startMs) / 60000)),
+            durationExplicit: Object.prototype.hasOwnProperty.call(base, 'durationExplicit') ? base.durationExplicit === true : true,
         };
         if (base.taskDateRecurringException === true || base.detachedTaskOccurrence === true) {
             item.taskDateRecurringException = true;
@@ -18916,10 +18932,15 @@
         }
         const prevItem = list[idx] && typeof list[idx] === 'object' ? list[idx] : {};
         const allDay = isAllDay || isAllDayRange(start, end);
+        const nextDurationMin = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
+        const previousDurationMin = Math.max(1, Math.round((toMs(prevItem.end) - toMs(prevItem.start)) / 60000));
+        const durationChanged = nextDurationMin !== previousDurationMin;
         const draftItem = {
             ...prevItem,
             start: safeISO(start),
             end: safeISO(end),
+            plannedMinutes: nextDurationMin,
+            durationExplicit: prevItem.durationExplicit === true || durationChanged,
             allDay,
         };
         const repeatType = normalizeScheduleRepeatType(getScheduleRepeatType(prevItem));
@@ -26093,6 +26114,7 @@
             calendarId,
             color: sourceColor,
             durationMin,
+            durationExplicit: true,
             allDay: false,
         });
         try { arg?.revert?.(); } catch (e) {}
@@ -28364,6 +28386,7 @@
     }
 
     function buildEventsFromRecords(records, settings, viewType) {
+        if (!shouldShowCalendarTomatoInView(settings, viewType)) return [];
         const filtered = normalizeCalendarTomatoRecords(records)
             .filter((r) => shouldShowMode(r?.mode, settings));
         if (settings.monthAggregate && String(viewType || '').trim() === 'dayGridMonth') {
@@ -36168,7 +36191,7 @@
                     })();
                     const childClass = `tm-kanban-card tm-kanban-card--sub tm-kanban-subtask-row${childDone ? ' tm-kanban-card--done' : ''}${childPinned ? ' tm-kanban-card--pinned' : ''}`;
                     const childPinnedStyle = childPinned ? ' style="border-left:3px solid var(--tm-primary-color);"' : '';
-                    const childAttrs = `data-id="${esc(childId)}" draggable="true" ondragstart="tmKanbanDragStart(event, '${esc(childId)}')" ondragend="tmKanbanDragEnd(event, '${esc(childId)}')" onpointerdown="tmKanbanCardPointerDown(event, '${esc(childId)}')"${useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(childId)}', event)"` : ` onclick="tmKanbanCardClick('${esc(childId)}', event)"`} oncontextmenu="tmShowTaskContextMenu(event, '${esc(childId)}')" ondblclick="tmKanbanCardDblClick('${esc(childId)}', event)"`;
+                    const childAttrs = `data-id="${esc(childId)}"${globalThis.__tmTaskBackgroundAttrs?.(child, child.sourceTaskId || child.recurringSourceTaskId || childId) || ''} draggable="true" ondragstart="tmKanbanDragStart(event, '${esc(childId)}')" ondragend="tmKanbanDragEnd(event, '${esc(childId)}')" onpointerdown="tmKanbanCardPointerDown(event, '${esc(childId)}')"${useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(childId)}', event)"` : ` onclick="tmKanbanCardClick('${esc(childId)}', event)"`} oncontextmenu="tmShowTaskContextMenu(event, '${esc(childId)}')" ondblclick="tmKanbanCardDblClick('${esc(childId)}', event)"`;
                     const childTitleInner = `${childTitle}${typeof __tmRenderRecurringTaskInlineIcon === 'function' ? __tmRenderRecurringTaskInlineIcon(child) : ''}`;
                     const childMeta = String(protoListTaskMetaHtml(child, false, eventApi) || '').replace('tm-kanban-card-meta', 'tm-kanban-subtask-meta');
                     return `<div class="${childClass}"${childPinnedStyle} ${childAttrs}><div class="tm-kanban-subtask-row-main">${childCheckbox}<div class="tm-kanban-subtask-text"><span class="tm-kanban-subtask-title tm-task-content-clickable" ${childTitleAttrs}>${childTitleInner}</span>${childMeta}</div><div class="tm-kanban-subtask-actions"><button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${esc(childId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('dots-three') : '⋯'}</button></div></div></div>`;
@@ -36193,7 +36216,7 @@
                 const reminderTime = buildCalendarMergedReminderMarkup(eventProps);
                 const reminderTitle = eventProps.__tmMergedReminderLabel
                     ? ` title="${esc(__tmT("calendar.reminder2", { value1: task.content || eventApi.title || '', tmMergedReminderLabel: eventProps.__tmMergedReminderLabel }))}"` : '';
-                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick}${reminderTitle} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><div class="tm-proto-list-task-title"><span class="tm-kanban-card-title-inline${parentTitleClass}" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${reminderTime}</div>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
+                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${globalThis.__tmTaskBackgroundAttrs?.(task, task.sourceTaskId || task.recurringSourceTaskId || id) || ''}${taskDetailClick}${reminderTitle} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><div class="tm-proto-list-task-title"><span class="tm-kanban-card-title-inline${parentTitleClass}" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${reminderTime}</div>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
             };
             const protoListEventRow = (eventApi, kind = 'regular') => {
                 const id = String(eventApi?.id || '').trim();
@@ -37680,7 +37703,7 @@
                     if (timeHub instanceof HTMLElement) { closeTimeHub(); return; }
                     openTimeHub(card.getAttribute('data-tm-proto-edit-date-card') || 'start', 'date');
                 }));
-                pop.querySelectorAll('[data-tm-proto-edit-time-card]').forEach((input) => input.addEventListener('change', () => {
+                pop.querySelectorAll('[data-tm-proto-edit-time-card]').forEach((input) => input.addEventListener('blur', () => {
                     if (input instanceof HTMLInputElement) applyScheduleTimeInput(input);
                 }));
                 const toggleInlineMore = () => {
@@ -43432,6 +43455,11 @@
                     <div class="tm-calendar-settings-label">${__tmT("calendar.hidePomodoroRecordsInMonthView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theMonthViewDoesNotExpandFocusBreakAnd")}</div>
                     </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAggregate" ${s.monthAggregate ? 'checked' : ''}>
+                </div>
+                <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.showTomatoRecordsInListView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showTomatoRecordsInListViewDesc")}</div>
+                    </div>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTomatoInList" ${s.showTomatoInList ? 'checked' : ''}>
                 </div>
         ` : '';
         // Week-grid paging is compact-only, so the desktop default-view list

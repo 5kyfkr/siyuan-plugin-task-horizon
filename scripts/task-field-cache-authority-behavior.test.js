@@ -40,6 +40,8 @@ function createContext(meta = {}) {
         __tmHasPendingVisibleDatePersistence: () => false,
         __tmHasPendingTaskFieldPersistence: () => false,
         __tmNormalizeTaskPriorityValue: (value) => String(value || ''),
+        __tmNormalizeTaskBackgroundColor: (value) => ['pink', 'amber', 'teal', 'blue', 'purple'].includes(String(value || '')) ? String(value) : '',
+        __tmGetTaskBackgroundColor: (task) => String(task?.taskBackgroundColor || task?.task_background_color || ''),
         __tmParseTaskLooseBoolean: (value) => value === true || value === '1' || value === 1,
         __tmNormalizeTaskRepeatRule: (value) => normalizeJson(value, { enabled: false }),
         __tmNormalizeTaskRepeatState: (value) => normalizeJson(value, {}),
@@ -88,6 +90,7 @@ const fields = [
     ['remark', 'remark', 'old remark', ''],
     ['taskCompleteAt', 'task_complete_at', '2026-09-10 10:00', ''],
     ['taskDateColor', 'task_date_color', '#ff0000', ''],
+    ['taskBackgroundColor', 'task_background_color', 'teal', ''],
     ['pinned', 'pinned', true, false],
     ['milestone', 'milestone', true, false],
     ['allDayBottom', 'custom_all_day_bottom', true, false],
@@ -131,6 +134,15 @@ test('unloaded fields retain the legacy metadata fallback', () => {
     context.normalizeTaskFields(task, 'Test');
     assert.equal(task.priority, 'high');
     assert.equal(task.repeatRule.enabled, true);
+});
+
+test('an unloaded task background color falls back to MetaStore after a cached index read', () => {
+    const { context } = createContext({ taskBackgroundColor: 'teal' });
+    const task = { id: 'task-a' };
+    context.MetaStore.applyToTask(task);
+    context.normalizeTaskFields(task, 'Test');
+    assert.equal(task.taskBackgroundColor, 'teal');
+    assert.equal(task.task_background_color, 'teal');
 });
 
 test('the real SQL attribute-read entry distinguishes missing attributes from explicit blanks', async () => {

@@ -95,6 +95,7 @@
     const TM_CALENDAR_SETTING_KEYS = Object.freeze([
         'calendarEnabled',
         'calendarLinkDockTomato',
+        'calendarShowTomatoInList',
         'calendarIcsEnabled',
         'calendarIcsProvider',
         'calendarIcsPublishMode',

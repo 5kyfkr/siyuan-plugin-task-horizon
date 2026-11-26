@@ -6594,6 +6594,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 end,
                 calendarId,
                 durationMin,
+                durationExplicit: Number(__tmParseDurationMinutes(draft?.duration)) > 0,
                 allDay: false,
                 color,
                 preferCalendarColor: !color,
@@ -7641,6 +7642,68 @@ return Number(state.contextInteractionQuietUntil || 0);
         return btn;
     }
 
+    function __tmBuildTaskBackgroundColorPicker(taskId, task, onPick) {
+        const wrap = document.createElement('div');
+        wrap.className = 'tm-task-background-picker';
+        const title = document.createElement('div');
+        title.className = 'tm-task-background-picker__title';
+        title.textContent = __tmT('task.backgroundColor');
+        wrap.appendChild(title);
+        const row = document.createElement('div');
+        row.className = 'tm-task-background-picker__row';
+        const current = __tmGetTaskBackgroundColor(task);
+        const palette = [
+            ['pink', __tmT('task.backgroundPink'), '#edb4c5'],
+            ['amber', __tmT('task.backgroundAmber'), '#ebca8b'],
+            ['teal', __tmT('task.backgroundTeal'), '#a6d3c9'],
+            ['blue', __tmT('task.backgroundBlue'), '#aec6e8'],
+            ['purple', __tmT('task.backgroundPurple'), '#c7b6e1'],
+            ['', __tmT('task.restoreDefault'), ''],
+        ];
+        palette.forEach(([key, label, color]) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const active = !!key && current === key;
+            btn.className = `tm-task-background-picker__btn${active ? ' is-active' : ''}`;
+            btn.title = label;
+            btn.setAttribute('aria-label', label);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            if (color) btn.style.setProperty('--tm-task-background-swatch', color);
+            else btn.classList.add('tm-task-background-picker__btn--reset');
+            if (!color) btn.innerHTML = __tmPhosphorBoldSvg('arrow-counter-clockwise', { size: 14 });
+            btn.onclick = (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                onPick?.(taskId, key);
+            };
+            row.appendChild(btn);
+        });
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    globalThis.__tmBuildTaskBackgroundColorPicker = __tmBuildTaskBackgroundColorPicker;
+
+    globalThis.__tmSetTaskBackgroundColor = async function(taskId, value) {
+        const rawId = String(taskId || '').trim();
+        if (!rawId) return false;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(rawId) || globalThis.__tmCalendarGetTaskSnapshot?.(rawId) || null;
+        const tid = String(task?.sourceTaskId || task?.recurringSourceTaskId || rawId).trim();
+        const color = __tmNormalizeTaskBackgroundColor(value);
+        const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT('task.taskFieldWriteQueueIsNotReady'));
+        const result = await patchTask(tid, { taskBackgroundColor: color }, {
+            source: 'task-background-color',
+            reason: 'task-background-color',
+            label: __tmT('task.backgroundColor'),
+            wait: true,
+            background: true,
+            skipInteractionGate: true,
+            persistTaskIndex: true,
+        });
+        return result !== false;
+    };
+
     function __tmBuildTaskDetailMoreSubmenuItem(label, iconName, childrenBuilder, options = {}) {
         const wrap = document.createElement('div');
         wrap.className = 'tm-task-detail-more-menu__submenu';
@@ -8054,6 +8117,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
 
         actions.push({
+            label: __tmT('task.backgroundColor'),
+            icon: 'paint-brush',
+            taskBackgroundColorPicker: true,
+        });
+        actions.push({ separator: true });
+        actions.push({
             label: pinned ? __tmT("ai.unpin") : __tmT("kernel.pin"),
             icon: 'pin',
             run: async () => { await window.tmSetPinned?.(tid, !pinned); }
@@ -8261,6 +8330,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 cleaned.push({ ...item, submenu });
                 return;
             }
+            if (item.taskBackgroundColorPicker === true) {
+                cleaned.push(item);
+                return;
+            }
             if (typeof item.run !== 'function') return;
             cleaned.push(item);
         });
@@ -8281,6 +8354,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         __tmCloseTaskDetailMoreMenu();
 
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid)
+            || globalThis.__tmCalendarGetTaskSnapshot?.(tid)
+            || null;
         const actions = __tmBuildTaskDetailMoreActions(tid, options);
         const timerSection = __tmBuildTaskDetailMoreTimerSection(tid);
         if (!timerSection && !actions.length) return;
@@ -8311,6 +8387,18 @@ return Number(state.contextInteractionQuietUntil || 0);
                     }));
                 }, {
                     labelHtml: item.labelHtml,
+                }));
+                return;
+            }
+            if (item.taskBackgroundColorPicker) {
+                menu.appendChild(__tmBuildTaskBackgroundColorPicker(tid, task, (colorTaskId, color) => {
+                    menu.querySelectorAll('.tm-task-background-picker__btn').forEach((button) => { button.disabled = true; });
+                    Promise.resolve(globalThis.__tmSetTaskBackgroundColor(colorTaskId, color)).then((ok) => {
+                        if (!ok) hint(__tmT('task.updateFailed', { message: '' }), 'error');
+                    }).catch((error) => {
+                        hint(error?.message || __tmT('task.updateFailed', { message: '' }), 'error');
+                    });
+                    menu.remove();
                 }));
                 return;
             }

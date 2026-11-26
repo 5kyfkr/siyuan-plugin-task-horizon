@@ -1,3 +1,20 @@
+    const __TM_TASK_BACKGROUND_COLORS = Object.freeze(['pink', 'amber', 'teal', 'blue', 'purple']);
+
+    function __tmNormalizeTaskBackgroundColor(value) {
+        const key = String(value ?? '').trim().toLowerCase();
+        return __TM_TASK_BACKGROUND_COLORS.includes(key) ? key : '';
+    }
+
+    function __tmGetTaskBackgroundColor(task) {
+        return __tmNormalizeTaskBackgroundColor(task?.taskBackgroundColor ?? task?.task_background_color);
+    }
+
+    function __tmTaskBackgroundAttrs(task, taskId = task?.sourceTaskId || task?.recurringSourceTaskId || task?.id) {
+        return ` data-tm-task-background-id="${esc(String(taskId || ''))}" data-tm-task-background="${__tmGetTaskBackgroundColor(task)}"`;
+    }
+
+    globalThis.__tmTaskBackgroundAttrs = __tmTaskBackgroundAttrs;
+
     (function () {
         const definitions = Object.freeze([
             { field: 'content', aliases: ['title', 'text', 'raw_content', 'rawContent'], groups: ['search', 'calendar'] },
@@ -9,9 +26,11 @@
             { field: 'completionTime', aliases: ['completion_time', 'custom_completion_time', 'custom-completion-time'], groups: ['time', 'scoreSource', 'calendar'] },
             { field: 'dateMode', aliases: ['date_mode', 'custom-task-date-mode'], groups: ['time', 'calendar'] },
             { field: 'taskDateColor', aliases: ['task_date_color', 'custom_task_date_color', 'custom-task-date-color'], groups: ['calendar'] },
+            { field: 'taskBackgroundColor', aliases: ['task_background_color', 'custom-task-background-color'], groups: ['calendar'] },
             { field: 'customTime', aliases: ['custom_time', 'custom-time'], groups: ['time', 'scoreSource', 'calendar'] },
             { field: 'taskCompleteAt', aliases: ['task_complete_at', 'task-complete-at', 'custom-task-complete-at'], groups: ['completion', 'scoreSource', 'calendar'] },
             { field: 'duration', aliases: ['custom_duration', 'custom-duration'], groups: ['scoreSource'] },
+            { field: 'durationSource', aliases: ['duration_source', 'custom-duration-source'] },
             { field: 'remark', aliases: ['custom_remark', 'custom-remark'], groups: ['search'] },
             { field: 'attachments', aliases: ['__attachmentPaths'], groups: ['structured'] },
             { field: 'attachmentMeta', aliases: ['__attachmentMeta', 'attachment_meta'], groups: ['structured'] },
