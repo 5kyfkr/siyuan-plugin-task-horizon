@@ -17204,11 +17204,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         try {
             if (typeof __tmParseDurationMinutes === 'function') durationMin = Number(__tmParseDurationMinutes(task?.duration));
         } catch (e) {}
+        const durationSource = String(task?.durationSource || task?.duration_source || '').trim().toLowerCase();
+        const durationExplicit = durationSource !== 'schedule' && Number.isFinite(durationMin) && durationMin > 0;
         return {
             task,
             title,
-            durationMin,
-            durationExplicit: Number.isFinite(durationMin) && durationMin > 0,
+            durationMin: durationExplicit ? Math.round(durationMin) : 60,
+            durationExplicit,
             documentID: String(task?.root_id || task?.docId || '').trim(),
         };
     }

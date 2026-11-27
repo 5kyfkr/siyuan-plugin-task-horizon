@@ -12,7 +12,7 @@ assert.ok(start >= 0 && end > start, 'native side calendar drop binding must exi
 const bindingSource = source.slice(start, end);
 
 class FakeElement {
-    constructor() { this.listeners = new Map(); }
+    constructor(className = '') { this.listeners = new Map(); this.className = className; this.tagName = 'DIV'; }
     addEventListener(type, handler, options = {}) {
         const entries = this.listeners.get(type) || [];
         entries.push({ handler, signal: options.signal });
@@ -24,7 +24,15 @@ class FakeElement {
         }
     }
     querySelectorAll() { return []; }
+    closest(selector) {
+        const classes = String(this.className || '').split(/\s+/);
+        return String(selector || '').split(',').some((part) => {
+            const className = part.trim().replace(/^\./, '');
+            return className && classes.includes(className);
+        }) ? this : null;
+    }
     getBoundingClientRect() { return { left: 600, right: 900, top: 0, bottom: 800 }; }
+    contains(element) { return element === this || element instanceof FakeElement; }
 }
 
 function createHarness() {
@@ -33,11 +41,13 @@ function createHarness() {
     const window = new FakeElement();
     const frames = new Map();
     const timers = new Map();
-    const payload = { taskId: 'task-1', title: 'Task' };
-    const state = { sideDay: { rootEl: root, previewKey: '' } };
+    const payload = { taskId: 'task-1', title: 'Task', durationMin: 90, durationExplicit: true };
+    const fallbackPayload = { ...payload, durationMin: 60 };
+    const state = { sideDay: { rootEl: root, previewKey: '' }, allowTaskPayload: true };
     const counts = { globalClears: 0, payloadReads: 0, hitTests: 0, previews: 0 };
     const previews = [];
     const drops = [];
+    const previewDurations = [];
     let highlighted = true;
     let nextId = 0;
     const context = {
@@ -48,9 +58,9 @@ function createHarness() {
         cancelAnimationFrame(id) { frames.delete(id); },
         setInterval(callback) { timers.set(++nextId, callback); return nextId; },
         clearInterval(id) { timers.delete(id); },
-        buildDraggingTaskPayload() { counts.payloadReads += 1; return payload; },
-        parseTaskDropPayload() { counts.payloadReads += 1; return payload; },
-        resolveCalendarExternalDragPointTarget() { return root; },
+        buildDraggingTaskPayload() { counts.payloadReads += 1; return state.allowTaskPayload ? (state.useFallbackDuration ? fallbackPayload : payload) : null; },
+        parseTaskDropPayload() { counts.payloadReads += 1; return state.allowTaskPayload ? payload : null; },
+        resolveCalendarExternalDragPointTarget(x, y, fallbackTarget) { return fallbackTarget || root; },
         resolveSideDayDropHitFromPoint(host, target, clientX, clientY) {
             counts.hitTests += 1;
             return { start: new Date(2026, 8, 8, 0, clientY), allDay: false, clientY };
@@ -58,6 +68,7 @@ function createHarness() {
         renderSideDayDropPreview(host, task, hit) {
             counts.previews += 1;
             previews.push(hit.clientY);
+            previewDurations.push(task.durationMin);
             state.sideDay.previewKey = String(hit.clientY);
         },
         clearSideDayDropPreview() { state.sideDay.previewKey = ''; },
@@ -79,7 +90,7 @@ function createHarness() {
     const bind = vm.runInNewContext(`(${bindingSource.trim()})`, context);
     bind(root, () => payload);
     return {
-        root, document, window, state, counts, previews, drops, frames, timers,
+        root, document, window, state, counts, previews, previewDurations, drops, frames, timers,
         bind: () => bind(root, () => payload),
         isHighlighted: () => highlighted,
         flushFrame() {
@@ -90,9 +101,9 @@ function createHarness() {
     };
 }
 
-function dragEvent(clientX, clientY, types = ['application/x-tm-task']) {
+function dragEvent(clientX, clientY, types = ['application/x-tm-task'], targetClass = 'tm-proto-time-col') {
     return {
-        clientX, clientY, target: new FakeElement(),
+        clientX, clientY, target: new FakeElement(targetClass),
         dataTransfer: { types },
         defaultPrevented: false,
         preventDefault() { this.defaultPrevented = true; },
@@ -135,6 +146,35 @@ async function main() {
     assert.deepEqual(inside.previews, [259], 'only the latest position must be rendered');
     assert.equal(inside.counts.hitTests, 1, 'the preview must not repeat hit-testing through the shared controller');
     console.log('Inside-sidebar drag counts after one frame:', inside.counts);
+
+    const flicker = createHarness();
+    const accepted = dragEvent(700, 320);
+    await flicker.document.emit('dragover', accepted);
+    assert.equal(accepted.defaultPrevented, true);
+    flicker.state.allowTaskPayload = false;
+    const rejected = dragEvent(700, 321, []);
+    await flicker.document.emit('dragover', rejected);
+    assert.equal(rejected.defaultPrevented, true, 'the current drag must retain its accepted payload when transfer data is temporarily unavailable');
+    flicker.state.allowTaskPayload = true;
+    const acceptedAgain = dragEvent(700, 322);
+    await flicker.document.emit('dragover', acceptedAgain);
+    assert.equal(acceptedAgain.defaultPrevented, true);
+
+    const stablePayload = createHarness();
+    await stablePayload.document.emit('dragover', dragEvent(700, 220));
+    stablePayload.state.useFallbackDuration = true;
+    const payloadReadsBeforeDrag = stablePayload.counts.payloadReads;
+    await stablePayload.document.emit('drag', dragEvent(700, 333));
+    stablePayload.flushFrame();
+    assert.equal(stablePayload.counts.payloadReads, payloadReadsBeforeDrag, 'drag events must not rebuild the payload from a competing task snapshot');
+    assert.deepEqual(stablePayload.previews, [333]);
+    assert.deepEqual(stablePayload.previewDurations, [90], 'the drag preview must retain the initial manual estimate payload');
+
+    const invalidLane = createHarness();
+    const resizerDrag = dragEvent(700, 250, ['application/x-tm-task'], 'tm-calendar-side-dock-resizer');
+    await invalidLane.document.emit('dragover', resizerDrag);
+    assert.equal(resizerDrag.defaultPrevented, false, 'the dock resizer must not be accepted as a calendar drop lane');
+    assert.equal(invalidLane.counts.payloadReads, 0, 'invalid drop lanes must be rejected before resolving task metadata');
 
     await inside.root.emit('scroll', {});
     await inside.root.emit('scroll', {});

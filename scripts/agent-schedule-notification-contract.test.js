@@ -19,6 +19,7 @@ assert.doesNotMatch(kernel, /enum:\s*SCHEDULE_REMINDER_OFFSETS/, 'SiYuan Kernel 
 assert.match(workbench, /SCHEDULE_MUTATION_TOOLS[\s\S]*refreshScheduleMutation/, 'AI schedule writes must enter the shared refresh bridge');
 assert.match(bridge, /refreshSchedulesFromSharedFile[\s\S]*tm:calendar-schedule-updated/, 'the refresh bridge must reload schedules before notifying reminder consumers');
 assert.match(calendar, /scheduleUpdatedListener[\s\S]*scheduleScheduleReminderRefresh/, 'schedule mutations must refresh the reminder engine');
+assert.match(calendar, /sr\.wechatSyncHandler = \(\) => \{[\s\S]*?refreshSchedulesFromSharedFile\(\{[\s\S]*?reason: 'sync-end',[\s\S]*?main: true,[\s\S]*?side: true[\s\S]*?scheduleWechatReminderReconcile\('sync-end'\)/, 'sync-end must reload the shared schedule file and refetch both calendars before reconciling reminders');
 
 assert.match(calendar, /function buildScheduleReminderRuntimeTimerKey\([\s\S]*meta\.title/, 'desktop timer identity must include notification content');
 assert.match(calendar, /desiredTimers\.set\(buildScheduleReminderRuntimeTimerKey\(key, pack\), pack\)/, 'desktop timers must use the content-aware runtime key');

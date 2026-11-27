@@ -1448,6 +1448,7 @@
             id,
             title: String(payload.title || base.title || id || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
             durationMin: safeMin,
+            durationExplicit: payload.durationExplicit === true,
             calendarId,
             __tmSource: 'schedule',
             __tmExternalPreview: true,
@@ -13054,16 +13055,19 @@
             meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(id) : null;
         } catch (e) {}
         const safeMeta = (meta && typeof meta === 'object') ? meta : {};
-        const durationMin = Number(base.durationMin || safeMeta.durationMin);
-        const hasDurationMarker = Object.prototype.hasOwnProperty.call(base, 'durationExplicit')
-            || Object.prototype.hasOwnProperty.call(safeMeta, 'durationExplicit');
-        const durationExplicit = base.durationExplicit === true
-            || safeMeta.durationExplicit === true
-            || (!hasDurationMarker && Number.isFinite(durationMin) && durationMin > 0);
+        const rawDurationMin = Number(base.durationMin || safeMeta.durationMin);
+        const hasMetaDurationMarker = Object.prototype.hasOwnProperty.call(safeMeta, 'durationExplicit');
+        const hasBaseDurationMarker = Object.prototype.hasOwnProperty.call(base, 'durationExplicit');
+        const durationExplicit = hasMetaDurationMarker
+            ? safeMeta.durationExplicit === true
+            : (hasBaseDurationMarker ? base.durationExplicit === true : Number.isFinite(rawDurationMin) && rawDurationMin > 0);
+        const durationMin = durationExplicit && Number.isFinite(rawDurationMin) && rawDurationMin > 0
+            ? Math.round(rawDurationMin)
+            : 60;
         return {
             taskId: id,
             title: String(base.title || safeMeta.title || id || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
-            durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
+            durationMin,
             durationExplicit,
             calendarId: String(base.calendarId || safeMeta.calendarId || '').trim(),
             documentID: String(base.documentID || base.docId || safeMeta.documentID || safeMeta.docId || '').trim(),
@@ -17584,7 +17588,16 @@
                 sr.wechatSyncHandler = () => {
                     sr.wechatRegistryLoaded = false;
                     sr.wechatRegistrySnapshotFound = false;
-                    scheduleWechatReminderReconcile('sync-end');
+                    Promise.resolve(refreshSchedulesFromSharedFile({
+                        reason: 'sync-end',
+                        main: true,
+                        side: true,
+                        flushTaskPanel: true,
+                    })).then(() => {
+                        scheduleWechatReminderReconcile('sync-end');
+                    }).catch(() => {
+                        scheduleWechatReminderReconcile('sync-end');
+                    });
                 };
                 sr.wechatSyncEventBus = eventBus;
                 eventBus.on('sync-end', sr.wechatSyncHandler);
@@ -19211,7 +19224,9 @@
         const task = resolver ? resolver(taskId) : null;
         let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
-        let durationExplicit = Number.isFinite(Number(durationMin)) && Number(durationMin) > 0;
+        const durationSource = String(task?.durationSource || task?.duration_source || '').trim().toLowerCase();
+        let durationExplicit = durationSource !== 'schedule' && Number.isFinite(Number(durationMin)) && Number(durationMin) > 0;
+        if (!durationExplicit) durationMin = 60;
         documentID = documentID || String(task?.root_id || task?.docId || '').trim();
         const taskDateFields = readTaskDropDateFields(task);
         if (taskDateFields.known) {
@@ -19246,6 +19261,7 @@
                 }
             }
         } catch (e) {}
+        if (!durationExplicit) durationMin = 60;
         return { taskId, title, durationMin, durationExplicit, documentID, calendarId: String(calendarId || '').trim(), startDate, completionTime, dateFieldsKnown };
     }
 
@@ -19261,7 +19277,9 @@
         const task = resolver ? resolver(taskId) : null;
         let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
-        let durationExplicit = Number.isFinite(Number(durationMin)) && Number(durationMin) > 0;
+        const durationSource = String(task?.durationSource || task?.duration_source || '').trim().toLowerCase();
+        let durationExplicit = durationSource !== 'schedule' && Number.isFinite(Number(durationMin)) && Number(durationMin) > 0;
+        if (!durationExplicit) durationMin = 60;
         let documentID = String(task?.root_id || task?.docId || '').trim();
         let calendarId = '';
         let startDate = '';
@@ -19296,6 +19314,7 @@
                 }
             }
         } catch (e) {}
+        if (!durationExplicit) durationMin = 60;
         return { taskId, title, durationMin, durationExplicit, documentID, calendarId, startDate, completionTime, dateFieldsKnown };
     }
 
@@ -20946,6 +20965,7 @@
         const abort = new AbortController();
         state.sideDay.nativeDropAbort = abort;
         let liveDrag = null;
+        let activeDragPayload = null;
         let scrollRefreshFrame = null;
         let livePreviewTimer = null;
         const clearDropPreview = () => {
@@ -20981,6 +21001,20 @@
             }
         };
         const getDropInfo = (target, x, y) => resolveSideDayDropHitFromPoint(rootEl, target, x, y);
+        const resolveDropLaneTarget = (event, x, y) => {
+            const eventTarget = event?.target instanceof Element ? event.target : null;
+            if (eventTarget?.closest?.('.tm-calendar-side-dock-resizer')) return null;
+            const target = resolveCalendarExternalDragPointTarget(x, y, eventTarget, rootEl);
+            const lane = target?.closest?.([
+                '.tm-proto-allday',
+                '.tm-proto-time-col',
+                '.tm-legacy-calendar-timegrid-all-day',
+                '.tm-legacy-calendar-timegrid-allday',
+                '.tm-legacy-calendar-timegrid-col',
+                '.tm-legacy-calendar-daygrid-day',
+            ].join(','));
+            return lane && rootEl.contains(lane) ? target : null;
+        };
         const refreshPreviewFromLiveDrag = () => {
             const xp = Number(liveDrag?.x);
             const yp = Number(liveDrag?.y);
@@ -21021,7 +21055,17 @@
                 clearDropPreview();
                 return;
             }
-            const payload = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask);
+            const target = resolveDropLaneTarget(e, x, y);
+            if (!target) {
+                clearDropPreview();
+                return;
+            }
+            const incomingPayload = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask);
+            if (incomingPayload?.taskId
+                && (!activeDragPayload || activeDragPayload.taskId !== incomingPayload.taskId)) {
+                activeDragPayload = incomingPayload;
+            }
+            const payload = activeDragPayload;
             if (!payload?.taskId) {
                 clearDropPreview();
                 return;
@@ -21030,6 +21074,12 @@
             rememberLiveDrag(payload, x, y);
             schedulePreviewRefresh();
         }, { signal: abort.signal, capture: true });
+        document.addEventListener('dragstart', (e) => {
+            const types = Array.from(e?.dataTransfer?.types || []);
+            if (!types.some((type) => /^application\/x-tm-task(?:-|$)/.test(type))) return;
+            activeDragPayload = null;
+            clearDropPreview();
+        }, { signal: abort.signal });
         document.addEventListener('drag', (e) => {
             const types = Array.from(e.dataTransfer?.types || []);
             if (types.includes('application/x-tm-task-link')) return;
@@ -21044,12 +21094,11 @@
                     return;
                 }
             } catch (e2) {}
-            const payload = buildDraggingTaskPayload(resolveTask);
-            if (!payload?.taskId) {
+            if (!resolveDropLaneTarget(e, x, y) || !activeDragPayload?.taskId) {
                 clearDropPreview();
                 return;
             }
-            rememberLiveDrag(payload, x, y);
+            rememberLiveDrag(activeDragPayload, x, y);
             schedulePreviewRefresh();
         }, { signal: abort.signal, capture: true });
         rootEl.addEventListener('scroll', schedulePreviewRefresh, { signal: abort.signal, capture: true });
@@ -21065,13 +21114,17 @@
                 if (out) clearDropPreview();
             } catch (e2) {}
         }, { signal: abort.signal });
-        window.addEventListener('dragend', clearDropPreview, { signal: abort.signal });
+        window.addEventListener('dragend', (e) => {
+            activeDragPayload = null;
+            clearDropPreview();
+        }, { signal: abort.signal });
         document.addEventListener('drop', clearDropPreview, { signal: abort.signal, capture: true });
 
         rootEl.addEventListener('drop', async (e) => {
             try {
-                const payload0 = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask);
-                const payload = calendarExternalDragPreviewController.resolvePayload({ payload: payload0 }, resolveTask) || payload0;
+                const payload0 = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask) || activeDragPayload;
+                const resolvedPayload = calendarExternalDragPreviewController.resolvePayload({ payload: payload0 }, resolveTask) || payload0;
+                const payload = activeDragPayload?.taskId === resolvedPayload?.taskId ? activeDragPayload : resolvedPayload;
                 if (!payload?.taskId) return;
                 e.preventDefault();
                 clearDropPreview();
@@ -21085,6 +21138,7 @@
                 });
             } catch (e2) {}
             finally {
+                activeDragPayload = null;
                 clearDropPreview();
             }
         }, { signal: abort.signal });

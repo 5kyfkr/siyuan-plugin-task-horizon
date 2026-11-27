@@ -1600,7 +1600,8 @@
         const calendarId = gid ? `group:${gid}` : 'default';
 
         const mins = __tmParseDurationMinutes(t?.duration);
-        const durationExplicit = Number.isFinite(Number(mins)) && Number(mins) > 0;
+        const durationSource = String(t?.durationSource || t?.duration_source || '').trim().toLowerCase();
+        const durationExplicit = durationSource !== 'schedule' && Number.isFinite(Number(mins)) && Number(mins) > 0;
         const durationMin = durationExplicit ? Math.round(Number(mins)) : 60;
         const title = __tmResolveCalendarTaskDisplayTitle(t, __tmT("calendar.untitled"));
         return {

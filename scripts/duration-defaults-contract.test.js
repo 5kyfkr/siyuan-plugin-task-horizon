@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const kernel = fs.readFileSync(path.join(root, 'kernel.js'), 'utf8');
@@ -20,6 +21,9 @@ assert.doesNotMatch(kernel, /\['taskHorizonResolveDurationDefaults',/, 'the inte
 assert.match(kernel, /durationCandidates:[\s\S]*maxItems: 200[\s\S]*getTaskPolicy/, 'the policy tool must accept bounded duration candidates');
 
 assert.match(support, /durationExplicit[\s\S]*durationMin = durationExplicit \? Math\.round/, 'calendar task metadata must distinguish real duration from the 60-minute placeholder');
+assert.match(support, /durationSource !== 'schedule' && Number\.isFinite\(Number\(mins\)\)/, 'schedule-derived task estimates must not become the next manual calendar drag duration');
+assert.match(dialogs, /function __tmResolveTaskDragSnapshot[\s\S]*durationSource !== 'schedule'[\s\S]*durationMin: durationExplicit \? Math\.round\(durationMin\) : 60/, 'fallback task snapshots must also use the placeholder for schedule-derived estimates');
+assert.match(calendar, /const hasMetaDurationMarker[\s\S]*safeMeta\.durationExplicit === true[\s\S]*: 60/, 'current task metadata must override stale drag payload provenance');
 assert.match(calendar, /async function resolveManualDragDurationMin[\s\S]*mode: 'manual-drag'[\s\S]*clampNewScheduleDurationMin\(60, settings\)/, 'manual drag must resolve defaults and retain the 60-minute failure fallback');
 assert.equal((calendar.match(/await resolveManualDragDurationMin\(/g) || []).length >= 3, true, 'desktop, side, and touch drop paths must use the shared resolver');
 assert.match(calendar, /__tmDurationExplicit[\s\S]*durationExplicit/, 'FullCalendar drag payloads must preserve explicit-duration provenance');
@@ -33,5 +37,26 @@ assert.match(dialogs, /function __tmBuildDockPointerTaskDragPayload[\s\S]*__tmRe
 assert.match(render, /window\.tmKanbanDragStart[\s\S]*durationExplicit: meta\?\.durationExplicit === true/, 'kanban drags must preserve duration provenance');
 assert.match(routing, /durationMin: 60,[\s\S]*durationExplicit: false/, 'fallback external drag payloads must identify 60 minutes as a placeholder');
 assert.match(aiBridge, /function __tmAiVirtualTaskDTO[\s\S]*title: String\(task\?\.content \|\| task\?\.raw_content \|\| task\?\.title/, 'AI virtual task candidates must expose the recurring instance title used by duration matching');
+
+const dragPayloadStart = calendar.indexOf('    function buildCalendarDropPayloadFromTaskId(');
+const dragPayloadEnd = calendar.indexOf('\n    async function addTaskScheduleFromCalendarDropPayload(', dragPayloadStart);
+assert.ok(dragPayloadStart >= 0 && dragPayloadEnd > dragPayloadStart, 'calendar task drag payload normalizer must exist');
+const dragPayloadContext = vm.createContext({
+    window: {
+        tmCalendarGetTaskDragMeta(id) {
+            return id === 'schedule-derived'
+                ? { durationMin: 195, durationExplicit: false }
+                : { durationMin: 45, durationExplicit: true };
+        },
+    },
+    __tmT: (key) => key,
+});
+vm.runInContext(`${calendar.slice(dragPayloadStart, dragPayloadEnd)}\nthis.normalizeDragPayload = buildCalendarDropPayloadFromTaskId;`, dragPayloadContext);
+assert.deepEqual(
+    JSON.parse(JSON.stringify(dragPayloadContext.normalizeDragPayload('schedule-derived', { durationMin: 195, durationExplicit: true }))),
+    JSON.parse(JSON.stringify({ taskId: 'schedule-derived', title: 'schedule-derived', durationMin: 60, durationExplicit: false, calendarId: '', documentID: '', startDate: '', completionTime: '', dateFieldsKnown: false })),
+    'a schedule-derived aggregate must create a default-length event even when an old drag payload marks it explicit',
+);
+assert.equal(dragPayloadContext.normalizeDragPayload('manual', { durationMin: 45, durationExplicit: true }).durationMin, 45, 'a manually entered estimate must size the dragged schedule');
 
 console.log('duration defaults contract tests passed');
