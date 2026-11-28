@@ -98,4 +98,51 @@ assert.deepEqual(
     '2027 lunar New Year must be February 6',
 );
 
+// Public festival dates, including ones after a leap month (2023 闰二月, 2025 闰六月, 2028 闰五月).
+const lunarDay = (key) => { const info = core.lunarInfo(key); return `${info.relatedYear}-${info.isLeap ? 'L' : ''}${info.month}-${info.day}`; };
+const festivals = [
+    ['2024-01-18', '2023-12-8'], ['2023-03-22', '2023-L2-1'], ['2025-05-31', '2025-5-5'], ['2025-10-06', '2025-8-15'],
+    ['2025-10-29', '2025-9-9'], ['2026-06-19', '2026-5-5'], ['2026-09-25', '2026-8-15'], ['2028-05-28', '2028-5-5'],
+    ['2028-08-26', '2028-7-7'], ['2028-10-03', '2028-8-15'], ['2029-02-12', '2028-12-29'], ['2029-02-13', '2029-1-1'],
+];
+for (const [key, expected] of festivals) assert.equal(lunarDay(key), expected, `lunar date of ${key}`);
+
+function chain(rule, from, steps) {
+    const out = [from];
+    for (let i = 0; i < steps; i += 1) out.push(core.nextDateKey(out[out.length - 1], rule));
+    return out;
+}
+assert.deepEqual(
+    chain({ enabled: true, type: 'yearly', every: 1, calendarMode: 'lunar', anchorDate: '2024-02-09' }, '2024-02-09', 3),
+    ['2024-02-09', '2025-01-28', '2026-02-16', '2027-02-05'],
+    'a yearly rule on lunar 12-30 uses the last day of a 29-day month instead of skipping the year',
+);
+assert.deepEqual(
+    chain({ enabled: true, type: 'yearly', every: 1, calendarMode: 'lunar', anchorDate: '2025-07-25' }, '2025-07-25', 2),
+    ['2025-07-25', '2026-07-14', '2027-07-04'],
+    'a yearly rule anchored in a leap month uses the regular month in other years',
+);
+assert.deepEqual(
+    chain({ enabled: true, type: 'monthly', every: 1, calendarMode: 'lunar', anchorDate: '2026-01-18' }, '2026-01-18', 3),
+    ['2026-01-18', '2026-02-16', '2026-03-18', '2026-04-16'],
+    'a monthly rule on lunar day 30 uses the last day of a 29-day month',
+);
+
+const tomatoPath = path.resolve(root, '../siyuan-plugin-docktomato/tomato.js');
+if (fs.existsSync(tomatoPath)) {
+    const table = (text, name) => {
+        const at = text.indexOf(`const ${name} = Object.freeze([`);
+        return text.slice(text.indexOf('[', at), text.indexOf(']);', at)).replace(/\s+/g, '');
+    };
+    assert.equal(table(fs.readFileSync(tomatoPath, 'utf8'), '__REMINDER_LUNAR_INFO_1900_2049'), table(source, '__TM_LUNAR_INFO_1900_2049'),
+        'Dock Tomato must carry the same lunar table');
+}
+
+// The conversion counts calendar days, so it must not depend on the local UTC offset or DST.
+// Kept last: the time zone override applies to the rest of the process.
+for (const zone of ['Asia/Hong_Kong', 'Asia/Singapore', 'America/New_York', 'Europe/London']) {
+    process.env.TZ = zone;
+    for (const [key, expected] of festivals) assert.equal(lunarDay(key), expected, `lunar date of ${key} in ${zone}`);
+}
+
 console.log('repeat parity tests passed');

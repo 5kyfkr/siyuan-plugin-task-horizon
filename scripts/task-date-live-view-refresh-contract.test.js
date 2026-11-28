@@ -51,6 +51,11 @@ const detailTimeHubDateRange = segment(
     'const updateDateRange = async (left, right) => {',
     'const loadHubSchedules = async (force = false) => {',
 );
+const standaloneTimeHubDateUpdate = segment(
+    detailRuntime,
+    'const updateDatePatch = async (patch, source = \'task-time-hub\') => {',
+    'const reportDateUpdateError = (error) => {',
+);
 
 assert.match(
     dateMutation,
@@ -86,5 +91,9 @@ assert.match(detailTimeHubSingleDate, /window\.tmUpdateTaskDates\(boundId, patch
     'single-date edits must use the authoritative date mutation command');
 assert.match(detailTimeHubDateRange, /window\.tmUpdateTaskDates\(boundId, patch/,
     'date-range edits must use the authoritative date mutation command');
+assert.match(standaloneTimeHubDateUpdate, /const backgroundDateCommit = opts\.wait !== true && opts\.background !== false/,
+    'standalone time hub callers must be able to opt into an acknowledged date write');
+assert.match(standaloneTimeHubDateUpdate, /await window\.tmUpdateTaskDates\([\s\S]*background: backgroundDateCommit/,
+    'wait-enabled time hub date edits must await the shared mutation queue');
 
 console.log('task date live view refresh contract tests passed');

@@ -6890,6 +6890,7 @@
                 Promise.resolve(window.tmOpenTaskTimeHub(blockIdAtOpen, anchorEl, {
                     activeField,
                     source: 'quickbar',
+                    wait: true,
                     refresh: false,
                     broadcast: false,
                     isAnchorInteraction: (ev) => __tmQBResolveInlineMetaPointerTarget(ev)?.chip === anchorEl,

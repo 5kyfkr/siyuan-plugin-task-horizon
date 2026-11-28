@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n');
 const runtimeSource = read('src/task-horizon/main/35-custom-board-runtime.js');
+const topbarControlsSource = read('src/task-horizon/main/render/45-render-shell-controls-and-resize.js');
 const loaderSource = read('src/task-horizon/main/task-runtime/53c-document-loader-runtime.js');
 const detailOpenSource = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
 const projectionSource = read('src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js');
@@ -149,6 +150,23 @@ context.SettingsStore.data.customBoardSets = [];
     assert.equal(vm.runInContext('__tmGetActiveCustomBoardSet().id', context), 'set-second',
         'an active full-feature license may access later board sets');
     assert.equal(vm.runInContext('__tmCanAccessCustomBoardSetIndex(1)', context), true);
+    const boardSetTopbarUpdates = [];
+    context.escSq = (value) => String(value || '').replace(/'/g, "\\'");
+    context.__tmUpdateTopbarSelectValueInPlace = (...args) => {
+        boardSetTopbarUpdates.push(args);
+        return true;
+    };
+    assert.equal(vm.runInContext('__tmRefreshCustomBoardSetTopbarSelection()', context), true,
+        'a custom-board selection refresh must update the shared topbar select');
+    const boardSetTopbarUpdate = boardSetTopbarUpdates.at(-1);
+    assert.equal(boardSetTopbarUpdate[0], 'tmTopbarCustomBoardSetSelect');
+    assert.equal(boardSetTopbarUpdate[1], 'set-second');
+    assert.equal(boardSetTopbarUpdate[2], 'Second');
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(boardSetTopbarUpdate[3])).map((option) => [option.value, option.selected]),
+        [['set-first', false], ['set-second', true]],
+        'the refreshed board-set menu must reflect the newly active board and preserve all choices',
+    );
     context.HTMLElement = class HTMLElement {};
     context.document = { getElementById: () => null };
     context.tmOpenCustomBoardSetManager = () => {};
@@ -250,6 +268,18 @@ context.SettingsStore.data.customBoardSets = [];
         'board-set switching must use the shared Basecoat topbar select');
     assert.match(runtimeSource, /id: 'tmTopbarCustomBoardSetSelect'[\s\S]*?className: 'tm-custom-board-set-select'/,
         'the board-set selector must use its dedicated auto-width control class');
+    assert.match(runtimeSource,
+        /function __tmBuildCustomBoardSetTopbarOptions\(\)[\s\S]*?function __tmRefreshCustomBoardSetTopbarSelection\(\)[\s\S]*?__tmUpdateTopbarSelectValueInPlace\([\s\S]*?__tmBuildCustomBoardSetTopbarOptions\(\)[\s\S]*?function __tmRenderCustomBoardSetTopbar\(\)/,
+        'initial rendering and in-place refresh must share one board-set options builder');
+    assert.match(runtimeSource,
+        /async function __tmReloadCustomBoardTasks\(\)\s*\{\s*try \{ __tmRefreshCustomBoardSetTopbarSelection\(\); \}/,
+        'manual board-set reloads must refresh the topbar selection first');
+    assert.match(runtimeSource,
+        /function __tmBuildCustomBoardProjection\(options = \{\}\)\s*\{\s*try \{ __tmRefreshCustomBoardSetTopbarSelection\(\); \}/,
+        'automatic projection refreshes must keep the board-set topbar in sync');
+    assert.match(topbarControlsSource,
+        /function __tmUpdateTopbarSelectValueInPlace\(id, value, label = '', options = null\)[\s\S]*?__tmRenderTopbarSelectMenuItems\(options, selectId\)[\s\S]*?openRoot\?\.id\s*\|\|\s*''\)\.trim\(\) === selectId/,
+        'optional topbar options must refresh the menu and its floating copy without affecting other selectors');
     assert.match(stylesSource, /\.tm-filter-rule-bar \.tm-custom-board-set-select\s*\{[^}]*width:\s*max-content !important;[^}]*min-width:\s*0;/,
         'the board-set selector width must follow the current set name');
     assert.doesNotMatch(stylesSource, /\.tm-filter-rule-bar \.tm-custom-board-set-select\s*\{[^}]*width:\s*min\(180px, 22vw\);/,
@@ -545,8 +575,19 @@ context.SettingsStore.data.customBoardSets = [];
         'duplicate tasks in combination-board lanes must anchor detail to the clicked lane');
     assert.match(renderRuntimeSource, /kanbanHostMode !== 'kanban' && kanbanHostMode !== 'comboBoard'/,
         'the shared touch drag gesture must support combination boards');
-    assert.match(renderRuntimeSource, /kind === 'custom'[\s\S]*combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard/,
-        'cross-lane combination-board drops must fail with a clear explanation');
+    const comboCardDropStart = renderRuntimeSource.indexOf('const childDropTargetId = eventChildDropCard');
+    const comboCardDropEnd = renderRuntimeSource.indexOf('const doneBoardEnabled =', comboCardDropStart);
+    assert.notEqual(comboCardDropStart, -1, 'combination-board child drop handling must exist');
+    assert.notEqual(comboCardDropEnd, -1, 'combination-board child drop handling must reach the shared Kanban flow');
+    const comboCardDrop = renderRuntimeSource.slice(comboCardDropStart, comboCardDropEnd);
+    assert.match(comboCardDrop, /__tmHandleTaskRowDropCore\(ev, targetId, 'child'\)/,
+        'cross-lane combination-board card drops must use the shared child-move path');
+    assert.doesNotMatch(comboCardDrop, /sourceColKey|targetColKey|combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard/,
+        'combination-board card nesting must not be restricted to one sub-board');
+    assert.match(renderRuntimeSource, /if \(kind === 'custom'\)\s*\{\s*hint\(__tmT\("task\.combinationBoardDropOntoTaskCardToNest"\)/,
+        'dropping on an empty combination-board lane must give a concise card-drop hint');
+    assert.match(renderRuntimeSource, /combinationBoardMembershipIsControlledByFilters/,
+        'group-header drops must explain that sub-board membership comes from filters');
     assert.match(renderRuntimeSource, /if \(kind === 'custom'\)\s*\{\s*__tmKanbanClearSurfaceDragOver\(\);[\s\S]*?return;/,
         'combination-board drag hover must not add the Kanban column background state');
     assert.match(renderRuntimeSource, /targetTimeKey = String\(dropTarget\.dataset\?\.tmKbDropTime[\s\S]*?targetQuadrantId = String\(dropTarget\.dataset\?\.tmKbDropQuadrant/,

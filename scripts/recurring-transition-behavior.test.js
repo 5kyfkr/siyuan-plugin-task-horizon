@@ -387,4 +387,31 @@ async function testRepeatRuleClearsStartDate() {
     assert.equal(writes[0].options.label, '循环规则');
 }
 
-testRepeatRuleClearsStartDate().then(testExecutor).then(testRestoredEffects).then(testRecoveredCompletionDoesNotReward).then(testHeldOccurrenceResetPreservesCompletion).then(testCapturedIntent).then(() => console.log('recurring transition, dates, identity, undo, index and single-write behavior passed')).catch(error => { console.error(error); process.exitCode = 1; });
+async function testSkipCompletionBasedRound() {
+    const writes = [];
+    let current = null;
+    Object.assign(context, {
+        window: {},
+        __tmT: key => key,
+        __tmResolveTaskForRepeat: async () => clone(current),
+        __tmApplyTaskMetaPatchWithUndo: async (taskId, patch) => { writes.push(clone(patch)); return {}; },
+    });
+    const start = runtime.indexOf('    window.tmSkipRecurringTaskOccurrence = async function');
+    assert.ok(start >= 0, 'skip entry must remain extractable');
+    vm.runInContext(runtime.slice(start, runtime.indexOf('\n    };', start) + 7), context);
+    const rule = { enabled: true, trigger: 'complete', type: 'daily', every: 7, anchorDate: '2026-11-01' };
+    current = task({ startDate: '', completionTime: '2026-11-08', repeatRule: rule,
+        repeatState: { occurrenceCount: 2, lastCompletedAt: '2026-11-01T09:00:00+08:00' } });
+    const skipped = await context.window.tmSkipRecurringTaskOccurrence(current.id);
+    assert.equal(skipped.nextDue, '2026-11-15', 'skipping a completion-based round moves one interval from its date');
+    assert.equal(writes[0].repeatState.occurrenceCount, 3);
+    assert.equal(writes[0].repeatState.lastCompletedAt, '2026-11-01T09:00:00+08:00', 'a skip is not a completion');
+    current = task({ startDate: '', completionTime: '2026-11-08', repeatRule: rule, repeatState: { occurrenceCount: 1 } });
+    assert.equal((await context.window.tmSkipRecurringTaskOccurrence(current.id)).nextDue, '2026-11-15', 'a round that was never completed can be skipped');
+    assert.equal(writes[1].repeatState.lastCompletedAt, '');
+    current = task({ startDate: '', completionTime: '2026-11-09', repeatState: { occurrenceCount: 1 },
+        repeatRule: { enabled: true, trigger: 'due', type: 'weekly', every: 1, weekdays: [1], anchorDate: '2026-11-02' } });
+    assert.equal((await context.window.tmSkipRecurringTaskOccurrence(current.id)).nextDue, '2026-11-16', 'due-based skipping is unchanged');
+}
+
+testRepeatRuleClearsStartDate().then(testSkipCompletionBasedRound).then(testExecutor).then(testRestoredEffects).then(testRecoveredCompletionDoesNotReward).then(testHeldOccurrenceResetPreservesCompletion).then(testCapturedIntent).then(() => console.log('recurring transition, dates, identity, undo, index and single-write behavior passed')).catch(error => { console.error(error); process.exitCode = 1; });

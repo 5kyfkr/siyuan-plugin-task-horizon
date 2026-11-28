@@ -176,29 +176,40 @@
         try { __tmRefreshDocGroupTopbarSelectsInPlace(groupId); } catch (e) {}
     };
 
-    function __tmUpdateTopbarSelectValueInPlace(id, value, label = '') {
+    function __tmUpdateTopbarSelectValueInPlace(id, value, label = '', options = null) {
         const selectId = String(id || '').trim();
         const nextValue = String(value || '').trim();
         const nextLabel = String(label || nextValue).trim();
         if (!selectId) return false;
+        const hasOptions = Array.isArray(options);
+        const nextMenuHtml = hasOptions ? __tmRenderTopbarSelectMenuItems(options, selectId) : '';
         const updateRoot = (root) => {
             if (!(root instanceof HTMLElement)) return;
             try {
                 const valueEl = root.querySelector('.bc-select-trigger__value');
-                if (valueEl && nextLabel) valueEl.textContent = nextLabel;
+                if (valueEl && nextLabel && valueEl.textContent !== nextLabel) valueEl.textContent = nextLabel;
             } catch (e) {}
             try {
-                root.querySelectorAll('.bc-select-option').forEach((option) => {
-                    const selected = String(option?.dataset?.tmOptionValue || '').trim() === nextValue;
-                    option.classList.toggle('is-selected', selected);
-                    option.setAttribute('aria-selected', selected ? 'true' : 'false');
-                });
+                const sourceMenu = root.querySelector('.bc-select-menu');
+                if (hasOptions && sourceMenu instanceof HTMLElement && sourceMenu.innerHTML !== nextMenuHtml) {
+                    sourceMenu.innerHTML = nextMenuHtml;
+                } else {
+                    root.querySelectorAll('.bc-select-option').forEach((option) => {
+                        const selected = String(option?.dataset?.tmOptionValue || '').trim() === nextValue;
+                        option.classList.toggle('is-selected', selected);
+                        option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                    });
+                }
             } catch (e) {}
         };
         try { updateRoot(document.getElementById(selectId)); } catch (e) {}
         try {
             const floating = document.getElementById('tmTopbarFloatingMenu');
-            if (floating instanceof HTMLElement) updateRoot(floating);
+            const openRoot = document.querySelector('.tm-topbar-select[data-open="true"]');
+            if (floating instanceof HTMLElement && (!hasOptions || String(openRoot?.id || '').trim() === selectId)) {
+                if (hasOptions && floating.innerHTML !== nextMenuHtml) floating.innerHTML = nextMenuHtml;
+                updateRoot(floating);
+            }
         } catch (e) {}
         return true;
     }

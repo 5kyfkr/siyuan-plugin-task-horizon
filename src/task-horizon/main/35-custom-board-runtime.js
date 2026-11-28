@@ -196,20 +196,34 @@
     }
     globalThis.__tmBuildCustomBoardProjectionShell = __tmBuildCustomBoardProjectionShell;
 
-    function __tmRenderCustomBoardSetTopbar() {
+    function __tmBuildCustomBoardSetTopbarOptions() {
         const sets = __tmGetAccessibleCustomBoardSets();
         const active = __tmGetActiveCustomBoardSet();
-        const options = (sets.length ? sets : [{ id: '', name: __tmT("task.noBoardSets") }]).map((set) => ({
+        return (sets.length ? sets : [{ id: '', name: __tmT("task.noBoardSets") }]).map((set) => ({
             value: set.id,
             label: set.name,
             selected: !!set.id && set.id === active?.id,
             action: set.id ? `tmSelectCustomBoardSetFromTopbar('${escSq(set.id)}')` : 'tmOpenCustomBoardSetManager()',
         }));
+    }
+
+    function __tmRefreshCustomBoardSetTopbarSelection() {
+        if (typeof __tmUpdateTopbarSelectValueInPlace !== 'function') return false;
+        const active = __tmGetActiveCustomBoardSet();
+        return __tmUpdateTopbarSelectValueInPlace(
+            'tmTopbarCustomBoardSetSelect',
+            String(active?.id || '').trim(),
+            String(active?.name || __tmT("task.noBoardSets")).trim(),
+            __tmBuildCustomBoardSetTopbarOptions(),
+        );
+    }
+
+    function __tmRenderCustomBoardSetTopbar() {
         return `<div class="tm-custom-board-topbar" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.boardSet")}">
             ${__tmRenderTopbarSelect({
                 id: 'tmTopbarCustomBoardSetSelect',
                 label: __tmT("task.boardSet"),
-                options,
+                options: __tmBuildCustomBoardSetTopbarOptions(),
                 className: 'tm-custom-board-set-select',
                 tooltip: __tmT("task.boardSet"),
             })}
@@ -802,6 +816,7 @@
     }
 
     async function __tmReloadCustomBoardTasks() {
+        try { __tmRefreshCustomBoardSetTopbarSelection(); } catch (e) {}
         if (String(state.viewMode || '') !== __TM_CUSTOM_BOARD_VIEW_MODE) {
             try { render(); } catch (e) {}
             return;
@@ -1359,6 +1374,7 @@
     }
 
     function __tmBuildCustomBoardProjection(options = {}) {
+        try { __tmRefreshCustomBoardSetTopbarSelection(); } catch (e) {}
         const opts = options && typeof options === 'object' ? options : {};
         if (state.__tmCustomBoardLoading === true && opts.allowWhileLoading !== true) {
             return Array.isArray(state.customBoardProjection) ? state.customBoardProjection : [];

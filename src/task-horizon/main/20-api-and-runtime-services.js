@@ -6098,7 +6098,7 @@
                     commandID: String(op?.id || '').trim(),
                     taskID: taskId,
                     patch: normalizedPatch,
-                    options: { allowSystem: true, inheritedDateFields: op?.data?.inheritedDateFields || [] },
+                    options: { allowSystem: true, inheritedDateFields: op?.data?.inheritedDateFields || [], source: op?.data?.source },
                     recordUndo: op?.data?.recordUndo !== false,
                     laneID: __tmGetActiveTaskMutationLaneId(taskId),
                 }, __tmT("task.taskFieldWrite"));
@@ -15191,7 +15191,6 @@
             const source = String(detail.source || '').trim();
             const backgroundSyncSources = new Set([
                 'task-repeat-load-reconcile',
-                'native-doc-checkbox-sync',
                 'native-doc-checkbox-reconcile',
                 'native-doc-checkbox-status-sync',
             ]);

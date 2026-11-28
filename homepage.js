@@ -5081,8 +5081,15 @@
         return dt instanceof Date ? dt.getTime() : 0;
     }
 
+    // A completion timestamp is read as the user's local day; its text is written in UTC+8.
+    function normalizeDoneDateKey(value) {
+        const raw = String(value || "").trim();
+        const date = /^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}/.test(raw) ? new Date(raw) : null;
+        return date && !Number.isNaN(date.getTime()) ? formatDateKey(date) : normalizeDateKey(raw);
+    }
+
     function resolveTaskDoneKey(task) {
-        return normalizeDateKey(resolveTaskDoneValue(task));
+        return normalizeDoneDateKey(resolveTaskDoneValue(task));
     }
 
     function resolveTaskDoneMetricValue(task) {
@@ -5099,7 +5106,7 @@
     }
 
     function resolveTaskDoneMetricKey(task) {
-        return normalizeDateKey(resolveTaskDoneMetricValue(task));
+        return normalizeDoneDateKey(resolveTaskDoneMetricValue(task));
     }
 
     function resolveTaskDueKey(task) {

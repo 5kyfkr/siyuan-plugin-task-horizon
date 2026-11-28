@@ -52,6 +52,7 @@ const context = vm.createContext({
 vm.runInContext([
     modelSource.slice(repeatStart, repeatEnd),
     extractFunction(modelSource, '__tmResolveTaskCompletedAtRaw'),
+    extractFunction(modelSource, '__tmParseTimeToTs'),
     extractFunction(modelSource, '__tmGetTaskCompletedAtDateKey'),
     extractFunction(modelSource, '__tmIsTaskCompletedToday'),
     extractFunction(modelSource, '__tmIsRecurringInstanceTask'),

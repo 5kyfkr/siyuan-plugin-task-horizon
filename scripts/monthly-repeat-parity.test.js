@@ -49,6 +49,14 @@ assert.equal(patch.repeatState.occurrenceCount, 2);
 const legacyPatch = context.__tmBuildTaskRepeatAdvancePatch(ranged, { ...legacy, anchorDate: '2026-09-10' });
 assert.equal(legacyPatch.startDate, '2026-10-08');
 assert.equal(legacyPatch.completionTime, '2026-10-10');
+const postponed = context.__tmBuildTaskRepeatAdvancePatch({
+    ...ranged,
+    completionTime: '2026-09-12',
+    repeatState: { ...ranged.repeatState, planOverride: { startDate: ranged.startDate, completionTime: ranged.completionTime } },
+}, { enabled: true, trigger: 'due', type: 'daily', every: 7, anchorDate: ranged.completionTime });
+assert.equal(postponed.startDate, '2026-09-15', 'postponing just this occurrence must not extend future date ranges');
+assert.equal(postponed.completionTime, '2026-09-17', 'next due date stays on the original cadence');
+assert.equal(postponed.repeatState.planOverride, undefined, 'the exception does not carry over to the next occurrence');
 assert.equal(context.__tmBuildTaskRepeatAdvancePatch({ ...ranged, repeatState: { occurrenceCount: 2 } }, rule({ maxOccurrences: 2 })), null);
 vm.runInContext(runtimeSource.slice(runtimeSource.indexOf('function __tmGetTaskRepeatScheduleSignature'), runtimeSource.indexOf('async function __tmApplyTaskRepeatRule')), context);
 const changed = context.__tmBuildTaskRepeatRuleMetaPatch({ ...ranged, repeatRule: rule(), repeatState: { occurrenceCount: 4 } }, rule({ monthDays: [11, 17], maxOccurrences: 3 }));

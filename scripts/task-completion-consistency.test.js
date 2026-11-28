@@ -384,9 +384,17 @@ function testStatusTransitionCompletionTime() {
         __tmParseTimeToTs: (value) => Date.parse(value),
         __tmNormalizeDateOnly: (value) => String(value).slice(0, 10),
     });
-    for (const name of ['__tmResolveTaskCompletedAtRaw', '__tmGetTaskCompletedAtDateKey', '__tmIsTaskCompletedToday']) {
+    for (const name of ['__tmResolveTaskCompletedAtRaw', '__tmFormatDateKeyFromDate', '__tmGetTaskCompletedAtDateKey', '__tmIsTaskCompletedToday']) {
         vm.runInContext(extractFunction(taskModelSource, name), context);
     }
+    // "Completed today" follows the local calendar day of the timestamp, not the UTC+8 day in its text.
+    const previousZone = process.env.TZ;
+    for (const [zone, expected] of [['Asia/Shanghai', '2026-11-30'], ['America/New_York', '2026-11-29'], ['Europe/London', '2026-11-29']]) {
+        process.env.TZ = zone;
+        assert.equal(context.__tmGetTaskCompletedAtDateKey({ done: true, taskCompleteAt: '2026-11-30T07:00:00+08:00' }), expected, `completion day in ${zone}`);
+        assert.equal(context.__tmGetTaskCompletedAtDateKey({ done: true, taskCompleteAt: '2026-11-30' }), '2026-11-30', 'a date-only value is used as written');
+    }
+    if (previousZone === undefined) delete process.env.TZ; else process.env.TZ = previousZone;
     for (const name of ['__tmGetTaskDoneSortTs', '__tmCompareCompletedTasksRecentFirst']) {
         vm.runInContext(extractFunction(writerRuntimeSource, name), context);
     }

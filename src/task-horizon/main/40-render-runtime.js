@@ -6559,7 +6559,7 @@
             const sourceColKey = String(state.__tmKanbanDragSourceEl?.closest?.('.tm-kanban-col')?.getAttribute?.('data-col-key') || '').trim();
             const targetColKey = String(dropTarget.closest('.tm-kanban-col[data-kind="custom"]')?.getAttribute?.('data-col-key') || '').trim();
             if (!sourceColKey || !targetColKey || sourceColKey !== targetColKey) {
-                hint(__tmT("task.combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard"), 'info');
+                hint(__tmT("task.combinationBoardMembershipIsControlledByFilters"), 'info');
                 return;
             }
         }
@@ -6600,14 +6600,6 @@
             : candidateChildDropTargetId;
         if (childDropTargetId) {
             const targetId = childDropTargetId;
-            if (String(state.viewMode || '').trim() === 'comboBoard') {
-                const sourceColKey = String(state.__tmKanbanDragSourceEl?.closest?.('.tm-kanban-col')?.getAttribute?.('data-col-key') || '').trim();
-                const targetColKey = String(eventChildDropCard?.closest?.('.tm-kanban-col')?.getAttribute?.('data-col-key') || '').trim();
-                if (!sourceColKey || !targetColKey || sourceColKey !== targetColKey) {
-                    hint(__tmT("task.combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard"), 'info');
-                    return;
-                }
-            }
             const validation = __tmCanHandleTaskRowBatchDrop(baseIds, targetId);
             const targetTask = __tmKanbanGetTaskById(targetId);
             const allAlreadyChildren = baseIds.every((taskId) => {
@@ -6731,7 +6723,7 @@
             return;
         }
         if (kind === 'custom') {
-            hint(__tmT("task.combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard"), 'info');
+            hint(__tmT("task.combinationBoardDropOntoTaskCardToNest"), 'info');
             return;
         }
         if (kind === 'time') {

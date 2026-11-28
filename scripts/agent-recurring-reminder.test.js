@@ -136,8 +136,8 @@ async function run() {
     const completionBased = await update({ repeatRule: { type: 'daily', trigger: 'complete', every: 3, anchorDate: '2026-10-25' }, completionTime: '2026-10-25' });
     assert.equal(completionBased.ok, true);
     const completeAfter = await update({ done: true });
-    const completedDate = completeAfter.data.task.repeatHistory[0].completedAt.slice(0, 10);
-    const plusThreeDays = new Date(`${completedDate}T12:00:00`); plusThreeDays.setDate(plusThreeDays.getDate() + 3);
+    // The interval counts from the local calendar day of the completion, not the UTC+8 day in the stored text.
+    const plusThreeDays = new Date(completeAfter.data.task.repeatHistory[0].completedAt); plusThreeDays.setDate(plusThreeDays.getDate() + 3);
     assert.equal(completeAfter.data.task.completionTime, `${plusThreeDays.getFullYear()}-${String(plusThreeDays.getMonth() + 1).padStart(2, '0')}-${String(plusThreeDays.getDate()).padStart(2, '0')}`);
     const reminderEdit = await update({ followReminder: { times: ['09:00'], intentText: '每天9点提醒我' } });
     const changedByUser = JSON.parse(host.attrs.get(IDS.firstTask)['custom-tomato-reminder']);

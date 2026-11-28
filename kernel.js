@@ -2912,7 +2912,7 @@
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         if (!__tmIsRecurringNativeDoneHeld(task)) return '';
         const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
-        const completedDate = __tmNormalizeDateOnly(repeatState.lastCompletedAt || __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }));
+        const completedDate = __tmGetTaskCompletionDateKey(repeatState.lastCompletedAt || __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }));
         if (!completedDate) return '';
         const earliestResetDate = __tmShiftTaskRepeatDateKey(completedDate, 1);
         const nextOccurrenceDate = __tmNormalizeDateOnly(task?.completionTime || '')
@@ -3012,17 +3012,25 @@
         return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}.${pad(dt.getUTCMilliseconds(), 3)}${__TM_CHINA_TZ_SUFFIX}`;
     }
 
-    function __tmShiftTaskRepeatDateKey(dateKey, days) {
-        const date = __tmBuildLocalNoonDateFromKey(dateKey);
-        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
-        date.setDate(date.getDate() + Number(days || 0));
-        return __tmFormatDateKeyFromDate(date);
+    function __tmGetTaskCompletionDateKey(value) {
+        const raw = String(value || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        const normalized = __tmNormalizeTaskCompleteAtValue(raw);
+        const date = /^\d{4}-\d{2}-\d{2}[T\s]/.test(normalized) ? new Date(normalized) : null;
+        return date && !Number.isNaN(date.getTime()) ? __tmFormatDateKeyFromDate(date) : __tmNormalizeDateOnly(normalized);
     }
 
     function __tmFormatDateKeyFromDate(date) {
         if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
         const pad = (n) => String(n).padStart(2, '0');
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    function __tmShiftTaskRepeatDateKey(dateKey, days) {
+        const date = __tmBuildLocalNoonDateFromKey(dateKey);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        date.setDate(date.getDate() + Number(days || 0));
+        return __tmFormatDateKeyFromDate(date);
     }
 
     function __tmIsSameTaskOccurrenceRound(left, right) {
@@ -3118,21 +3126,23 @@
         const plannedAnchor = currentState.planOverride
             ? (currentState.planOverride.completionTime || currentState.planOverride.startDate)
             : '';
+        const planStart = plannedAnchor ? currentState.planOverride.startDate : prevStart;
+        const planDue = plannedAnchor ? currentState.planOverride.completionTime : prevDue;
         const fallbackBase = prevDue || prevStart || rule.anchorDate || __tmNormalizeDateOnly(new Date());
         let nextStart = '';
         let nextDue = '';
         {
             const previousAnchor = prevDue || prevStart || fallbackBase;
             const completionKey = rule.trigger === 'complete'
-                ? __tmNormalizeDateOnly(__tmNormalizeTaskCompleteAtValue(options.completedAt || task.taskCompleteAt || task.task_complete_at || ''))
+                ? __tmGetTaskCompletionDateKey(options.completedAt || task.taskCompleteAt || task.task_complete_at || '')
                 : '';
             if (rule.trigger === 'complete' && !completionKey) return null;
             const nextAnchor = __tmAdvanceTaskRepeatDateKey(completionKey || plannedAnchor || previousAnchor, rule);
             if (nextAnchor) {
-                const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(previousAnchor);
+                const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(plannedAnchor || previousAnchor);
                 if (Number.isFinite(deltaDays)) {
-                    nextStart = prevStart ? __tmShiftTaskRepeatDateKey(prevStart, deltaDays) : '';
-                    nextDue = prevDue ? __tmShiftTaskRepeatDateKey(prevDue, deltaDays) : '';
+                    nextStart = planStart ? __tmShiftTaskRepeatDateKey(planStart, deltaDays) : '';
+                    nextDue = planDue ? __tmShiftTaskRepeatDateKey(planDue, deltaDays) : '';
                     if (!prevStart && !prevDue) nextDue = nextAnchor;
                 }
             }
@@ -3141,8 +3151,8 @@
             nextDue = __tmAdvanceTaskRepeatDateKey(fallbackBase, rule);
         }
         if (!nextStart && !nextDue) return null;
-        if (prevStart && !nextStart) return null;
-        if (prevDue && !nextDue) return null;
+        if (planStart && !nextStart) return null;
+        if (planDue && !nextDue) return null;
         const nowIso = String(options.advancedAt || new Date().toISOString()).trim();
         const repeatState = __tmNormalizeTaskRepeatState({
             ...currentState,
@@ -3274,9 +3284,7 @@
         const guardLimit = Math.min(130000, Math.max(800, (every + 2) * 34 + 400));
         for (let i = 0; i < guardLimit; i += 1) {
             const info = __tmGetLunarDateInfo(cursor);
-            if (info
-                && info.day === anchorInfo.day
-                && (!info.isLeap || anchorInfo.isLeap)) {
+            if (__tmIsLunarMonthlyRepeatDay(info, anchorInfo)) {
                 const diffMonths = __tmGetLunarMonthIndex(info) - anchorIndex;
                 if (diffMonths > 0 && diffMonths % every === 0) return new Date(cursor.getTime());
             }
@@ -3311,46 +3319,29 @@
     }
 
     function __tmGetTableLunarDateInfo(date) {
-        const year = date.getFullYear();
-        if (year < 1900 || year > 2049) return null;
-        const lunarYearDays = (lunarYear) => {
-            const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
-            if (!Number.isFinite(value)) return 0;
-            let total = 348;
-            for (let mask = 0x8000; mask > 0x8; mask >>= 1) total += (value & mask) ? 1 : 0;
-            const leapMonth = value & 0xf;
-            return total + (leapMonth ? ((value & 0x10000) ? 30 : 29) : 0);
-        };
-        const leapDays = (lunarYear) => {
-            const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
-            return (value & 0xf) ? ((value & 0x10000) ? 30 : 29) : 0;
-        };
-        const monthDays = (lunarYear, month) => {
-            const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
-            return (value & (0x10000 >> month)) ? 30 : 29;
-        };
-        const base = new Date(1900, 0, 31, 12, 0, 0, 0);
-        let offset = Math.floor((date.getTime() - base.getTime()) / 86400000);
+        // Count calendar days rather than elapsed time: local UTC offsets differ between 1900 and today.
+        let offset = Math.round((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(1900, 0, 31)) / 86400000);
         if (offset < 0) return null;
-        let relatedYear = 1900;
-        while (relatedYear < 2049 && offset >= lunarYearDays(relatedYear)) {
-            offset -= lunarYearDays(relatedYear);
-            relatedYear += 1;
-        }
-        const leapMonth = __TM_LUNAR_INFO_1900_2049[relatedYear - 1900] & 0xf;
-        let month = 1;
-        let isLeap = false;
-        for (let calendarMonth = 1; calendarMonth <= 12 || isLeap; calendarMonth += 1) {
-            const days = isLeap ? leapDays(relatedYear) : monthDays(relatedYear, calendarMonth);
-            if (offset < days) return { relatedYear, month, day: offset + 1, isLeap };
-            offset -= days;
-            if (leapMonth === calendarMonth && !isLeap) isLeap = true;
-            else {
-                if (isLeap) isLeap = false;
-                month += 1;
+        for (let relatedYear = 1900; relatedYear <= 2049; relatedYear += 1) {
+            for (const { month, isLeap, days } of __tmGetLunarYearMonths(relatedYear)) {
+                if (offset < days) return { relatedYear, month, day: offset + 1, isLeap };
+                offset -= days;
             }
         }
         return null;
+    }
+
+    function __tmGetLunarYearMonths(lunarYear) {
+        if (__TM_LUNAR_YEAR_MONTHS.has(lunarYear)) return __TM_LUNAR_YEAR_MONTHS.get(lunarYear);
+        const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
+        const leapMonth = value & 0xf;
+        const months = [];
+        for (let month = 1; Number.isFinite(value) && month <= 12; month += 1) {
+            months.push({ month, isLeap: false, days: (value & (0x10000 >> month)) ? 30 : 29 });
+            if (month === leapMonth) months.push({ month, isLeap: true, days: (value & 0x10000) ? 30 : 29 });
+        }
+        __TM_LUNAR_YEAR_MONTHS.set(lunarYear, months);
+        return months;
     }
 
     function __tmGetChineseCalendarFormatter() {
@@ -3394,6 +3385,15 @@
     function __tmGetLunarMonthIndex(info) {
         if (!info || !Number.isFinite(Number(info.relatedYear)) || !Number.isFinite(Number(info.month))) return Number.NaN;
         return Number(info.relatedYear) * 12 + Number(info.month) - 1;
+    }
+
+    function __tmIsLunarMonthlyRepeatDay(info, anchorInfo) {
+        if (!info || (info.isLeap && !anchorInfo.isLeap)) return false;
+        return info.day === Math.min(anchorInfo.day, __tmGetLunarMonthDays(info.relatedYear, info.month, info.isLeap) || anchorInfo.day);
+    }
+
+    function __tmGetLunarMonthDays(lunarYear, month, isLeap) {
+        return __tmGetLunarYearMonths(lunarYear).find((item) => item.month === month && item.isLeap === !!isLeap)?.days || 0;
     }
 
     function __tmBuildTaskRepeatMonthlyWeekdayDate(baseDate, deltaMonths) {
@@ -3458,14 +3458,18 @@
     function __tmFindTaskRepeatLunarYearDate(relatedYear, anchorInfo) {
         const year = Math.trunc(Number(relatedYear));
         if (!Number.isFinite(year) || !anchorInfo) return null;
+        // A leap-month anchor uses the regular month in years without that leap month,
+        // and day 30 uses the last day of a 29-day month, so no year is skipped.
+        const isLeap = anchorInfo.isLeap && __tmGetLunarMonthDays(year, anchorInfo.month, true) > 0;
+        const day = Math.min(anchorInfo.day, __tmGetLunarMonthDays(year, anchorInfo.month, isLeap) || anchorInfo.day);
         const start = new Date(year, 0, 1, 12, 0, 0, 0);
         for (let i = 0; i < 430; i += 1) {
             const info = __tmGetLunarDateInfo(start);
             if (info
                 && info.relatedYear === year
                 && info.month === anchorInfo.month
-                && info.day === anchorInfo.day
-                && info.isLeap === anchorInfo.isLeap) {
+                && info.day === day
+                && info.isLeap === isLeap) {
                 return new Date(start.getTime());
             }
             start.setDate(start.getDate() + 1);
@@ -3702,6 +3706,7 @@
         0x05aa0, 0x076a3, 0x096d0, 0x04bd7, 0x04ad0, 0x0a4d0, 0x1d0b6, 0x0d250, 0x0d520, 0x0dd45,
         0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0, 0x0aa50, 0x1b255, 0x06d20, 0x0ada0,
     ]);
+    const __TM_LUNAR_YEAR_MONTHS = new Map();
     let __tmChineseCalendarFormatter = null;
     const __TM_CHINA_TZ_OFFSET_MINUTES = 8 * 60;
     const __TM_CHINA_TZ_SUFFIX = '+08:00';
@@ -5786,6 +5791,10 @@
                 : !text(persistedAttrs[REMINDER_ATTR]);
             if (!reminderPersisted) throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.readBackVerificationFailedAfterWritingTheReminder"));
             const task = await taskDTO(binding.taskID);
+            if (!normalized.reminder && previousReminder
+                && (await getUnencryptedReminderNotebooks()).has(taskState.row.box)) {
+                await publishReminderDeletionMarkers([{ id: binding.primaryHostID, reminder: previousReminder }]);
+            }
             return {
                 taskID: binding.taskID,
                 taskTitle: taskState.task.title,
@@ -6585,8 +6594,10 @@
             await api('/api/sqlite/flushTransaction', {});
             const existing = await sql(`SELECT id FROM blocks WHERE id = '${escapeSql(id)}' LIMIT 1`);
             if (!existing.length) return { id, recovered: true };
+            const removedReminders = await captureBlockReminderDeletions(id);
             await api('/api/block/deleteBlock', { id });
             await api('/api/sqlite/flushTransaction', {});
+            await publishReminderDeletionMarkers(removedReminders);
             return { id };
         }
         if (action === 'updateMarker') {
@@ -6981,6 +6992,206 @@
         );
     }
 
+    const RECURRING_SYNC_DIR = 'recurring-transitions-v1';
+    const RECURRING_SYNC_BEIJING_OFFSET = 8 * 60 * 60 * 1000;
+    const RECURRING_HISTORY_CLEANUP_FILE = 'recurring-history-retention-v1.json';
+    const RECURRING_SYNC_NAME = /^([0-9]{14}-[A-Za-z0-9]+)--transition_[a-z0-9]+_[a-z0-9]+\.json$/;
+    const recurringHistoryYear = (now = Date.now()) => new Date(now + RECURRING_SYNC_BEIJING_OFFSET).getUTCFullYear();
+    const recurringHistoryYearStart = year => Date.UTC(year, 0, 1) - RECURRING_SYNC_BEIJING_OFFSET;
+    const recurringSyncCutoff = () => recurringHistoryYearStart(recurringHistoryYear() - 1);
+
+    let recurringHistoryCleanedYear = 0;
+    let recurringHistoryCleanupTimer = null;
+    let recurringHistoryCleanupFlight = null;
+
+    async function listRecurringHistory(directory) {
+        try { return await siyuan.storage.list(directory); }
+        catch (error) {
+            if (/not found|no such file|not exist|enoent|cannot find|\u4e0d\u5b58\u5728/i.test(text(error?.message))) return [];
+            throw error;
+        }
+    }
+
+    async function cleanupRecurringHistory() {
+        const year = recurringHistoryYear();
+        if (recurringHistoryCleanedYear >= year) return;
+        if (recurringHistoryCleanupFlight) return recurringHistoryCleanupFlight;
+        const flight = (async () => {
+            const marker = await readJsonState(RECURRING_HISTORY_CLEANUP_FILE);
+            if (marker.status !== 'valid' && marker.status !== 'missing') throw jsonStorageError(RECURRING_HISTORY_CLEANUP_FILE, marker);
+            if (Number(marker.value?.year) >= year) {
+                recurringHistoryCleanedYear = year;
+                return;
+            }
+            const cutoff = recurringHistoryYearStart(year - 1);
+            for (const [directory, names] of [[RECURRING_SYNC_DIR, RECURRING_SYNC_NAME], [REMINDER_DELETE_OUTBOX, REMINDER_DELETE_FILE_RE]]) {
+                for (const item of await listRecurringHistory(directory)) {
+                    if (item.isDir || item.isSymlink || !names.test(item.name)) continue;
+                    const path = `${directory}/${item.name}`;
+                    const file = await readJsonState(path);
+                    if (file.status === 'unavailable') throw jsonStorageError(path, file);
+                    if (file.status === 'valid' && Number.isFinite(file.value?.at) && file.value.at < cutoff) {
+                        await writeJson(path, {});
+                    }
+                }
+            }
+            await writeJson(RECURRING_HISTORY_CLEANUP_FILE, { year });
+            recurringHistoryCleanedYear = year;
+        })();
+        recurringHistoryCleanupFlight = flight;
+        try { await flight; } finally { recurringHistoryCleanupFlight = null; }
+    }
+
+    function startRecurringHistoryCleanup() {
+        if (recurringHistoryCleanupTimer !== null) return;
+        const tick = () => {
+            const now = Date.now();
+            const nextYear = recurringHistoryYearStart(recurringHistoryYear(now) + 1);
+            recurringHistoryCleanupTimer = setTimeout(tick, Math.min(86400000, nextYear - now));
+            return cleanupRecurringHistory().catch(error => console.warn('[task-horizon] recurring history cleanup failed', error));
+        };
+        return tick();
+    }
+    const RECURRING_SYNC_FIELDS = ['startDate', 'completionTime', 'repeatRule', 'repeatState', 'done', 'customStatus', 'taskCompleteAt'];
+
+    const pendingRecurringTransitions = new Map();
+    // A document may already contain the transition target when sync selects
+    // that version locally. Keep one in-memory acknowledgement so the UI and
+    // Dock Tomato still refresh appointments once, without replaying the same
+    // transition on every later sync.
+    const recurringContextRefreshFingerprints = new Map();
+    const recurringSyncFingerprint = task => stableJson([
+        task.repeatRule || null, text(task.startDate), text(task.completionTime),
+        TaskRecurrence.normalizeState(task.repeatState), task.done === true,
+        text(task.customStatus), text(task.taskCompleteAt),
+    ]);
+    const recurringHistoryEntries = task => Array.isArray(task.repeatHistory) ? task.repeatHistory : [];
+    const recurringHistoryID = entry => text(entry?.id || entry?.completedAt);
+
+    async function saveRecurringTransition(before, after, patch, boxID, options) {
+        if (!own(patch, 'repeatState') || !before.repeatRule?.enabled || !after.repeatRule?.enabled) return;
+        const reschedule = /^tomato-reminder-(?:dialog|follow-draft)$|^task-horizon-reminder$/.test(text(options?.source))
+            && (own(patch, 'startDate') || own(patch, 'completionTime'));
+        if (!reschedule && (!own(patch, 'repeatHistory') || stableJson(before.repeatRule) !== stableJson(after.repeatRule))) return;
+        const from = recurringSyncFingerprint(before), to = recurringSyncFingerprint(after);
+        if (from === to) return;
+        const previous = recurringHistoryEntries(before), next = recurringHistoryEntries(after);
+        const previousIDs = new Set(previous.map(recurringHistoryID)), nextIDs = new Set(next.map(recurringHistoryID));
+        const added = next.filter(entry => recurringHistoryID(entry) && !previousIDs.has(recurringHistoryID(entry)));
+        const removed = previous.filter(entry => recurringHistoryID(entry) && !nextIDs.has(recurringHistoryID(entry))).map(recurringHistoryID);
+        // In particular, keep an undo as its own transition, not as a rewrite of
+        // the original completion. Two devices never append to the same file.
+        if (!reschedule && !added.length && !removed.length) return;
+        // The journal is outside document-level encryption. Do not copy
+        // content or recurrence state from encrypted (or unverified) notebooks.
+        const notebooks = await api('/api/notebook/lsNotebooks', {}).catch(() => null);
+        if (notebooks?.notebooks?.find(box => box.id === boxID)?.encrypted !== false) return;
+        const record = {
+            taskID: before.id, at: Date.now(), from, to, added, removed,
+            patch: Object.fromEntries(RECURRING_SYNC_FIELDS.filter(key => own(patch, key)).map(key => [key, after[key]])),
+        };
+        const path = `${RECURRING_SYNC_DIR}/${record.taskID}--${token('transition')}.json`;
+        pendingRecurringTransitions.set(path, record);
+        try {
+            await writeJson(path, record);
+            pendingRecurringTransitions.delete(path);
+        } catch (error) {
+            // The task transaction is already verified. Do not report it as
+            // failed and encourage another click; retry the journal separately.
+            console.warn('[task-horizon] could not save recurring transition; will retry', error);
+        }
+    }
+
+    let recurringReconcileFlight = null;
+    async function reconcileRecurringTransitionsNow() {
+        await retryReminderDeletionMarkers();
+        const cutoff = recurringSyncCutoff();
+        for (const [path, record] of pendingRecurringTransitions) {
+            if (record.at >= cutoff) {
+                try { await writeJson(path, record); }
+                catch (error) { continue; }
+            }
+            pendingRecurringTransitions.delete(path);
+        }
+        const entries = await listRecurringHistory(RECURRING_SYNC_DIR);
+        const byTask = new Map();
+        for (const item of entries) {
+            const match = RECURRING_SYNC_NAME.exec(item.name);
+            if (!match || item.isDir || item.isSymlink) continue;
+            const path = `${RECURRING_SYNC_DIR}/${item.name}`;
+            const file = await readJsonState(path);
+            const value = file.value;
+            if (file.status !== 'valid' || value?.taskID !== match[1] || !Number.isFinite(value.at)
+                || !value.from || !value.to || !Array.isArray(value.added) || !Array.isArray(value.removed)
+                || !value.patch || !Object.keys(value.patch).every(key => RECURRING_SYNC_FIELDS.includes(key))) continue;
+            if (value.at < cutoff) continue;
+            if (!byTask.has(value.taskID)) byTask.set(value.taskID, []);
+            byTask.get(value.taskID).push({ ...value, path });
+        }
+        if (!byTask.size) return { taskIDs: [] };
+        await api('/api/sqlite/flushTransaction', {});
+        const taskIDs = [];
+        for (const [id, records] of byTask) {
+            try {
+                let task = await taskDTO(id);
+                const edges = new Map();
+                for (const record of records) {
+                    if (!edges.has(record.from)) edges.set(record.from, []);
+                    edges.get(record.from).push(record);
+                }
+                const used = new Set();
+                // Walk the actual state transitions, independent of device
+                // clocks. A fork is not an unambiguous document rollback.
+                while (true) {
+                    const current = recurringSyncFingerprint(task);
+                    const candidates = (edges.get(current) || []).filter(record => {
+                        // A completion whose receipt was undone must not be
+                        // replayed when undo restored the exact source state.
+                        return !(edges.get(record.to) || []).some(reverse => reverse.to === current && (
+                            record.added.length ? record.added.every(entry => reverse.removed.includes(recurringHistoryID(entry)))
+                                : !record.removed.length && !reverse.added.length && !reverse.removed.length && reverse.at >= record.at
+                        ));
+                    });
+                    if (candidates.length !== 1 || used.has(current) || used.has(candidates[0].to)) break;
+                    used.add(current);
+                    const record = candidates[0];
+                    const ids = new Set(record.removed);
+                    const additions = new Set(record.added.map(recurringHistoryID));
+                    const repeatHistory = [...record.added, ...recurringHistoryEntries(task)
+                        .filter(entry => !ids.has(recurringHistoryID(entry)) && !additions.has(recurringHistoryID(entry)))];
+                    const patch = record.added.length || record.removed.length ? { ...record.patch, repeatHistory } : record.patch;
+                    if (recurringSyncFingerprint({ ...task, ...patch }) !== record.to) break;
+                    const expected = Object.fromEntries([...RECURRING_SYNC_FIELDS, 'repeatRule', 'repeatHistory'].map(key => [key, task[key] ?? null]));
+                    const result = await applyTaskPatch(id, patch, {
+                        allowSystem: true, expected, recordUndo: false, recurringReplay: true,
+                    });
+                    task = result.task;
+                    if (!taskIDs.includes(id)) taskIDs.push(id);
+                }
+                const convergedFingerprint = recurringSyncFingerprint(task);
+                if (records.some(record => record.to === convergedFingerprint)
+                    && recurringContextRefreshFingerprints.get(id) !== convergedFingerprint) {
+                    recurringContextRefreshFingerprints.set(id, convergedFingerprint);
+                    if (!taskIDs.includes(id)) taskIDs.push(id);
+                }
+
+            } catch (error) {
+                // Missing tasks are not recreated; transient failures retry on the next sync.
+                if (error?.code !== ERROR.NOT_FOUND && error?.code !== ERROR.CONFLICT) {
+                    console.warn('[task-horizon] recurring transition reconciliation failed', id, error);
+                }
+            }
+        }
+        return { taskIDs };
+    }
+
+    async function reconcileRecurringTransitions() {
+        if (recurringReconcileFlight) return await recurringReconcileFlight;
+        const flight = reconcileRecurringTransitionsNow();
+        recurringReconcileFlight = flight;
+        try { return await flight; } finally { recurringReconcileFlight = null; }
+    }
+
     async function applyTaskPatch(taskID, rawPatch, options) {
         const id = requireID(taskID, __tmT("kernel.taskId"));
         const laneID = text(options?.laneID || options?.laneId) || id;
@@ -7077,6 +7288,7 @@
                 updated: nowIso(),
                 attrHostID: context.primaryHostID,
             }, normalized.registry);
+            if (options?.recurringReplay !== true) await saveRecurringTransition(before, after, patch, row.box, options);
             let undoID = '';
             if (!options || options.recordUndo !== false) {
                 const inverse = {};
@@ -8617,6 +8829,96 @@
         return uniqueStrings([id, ...rows.map((item) => item && item.id)]);
     }
 
+    async function getUnencryptedReminderNotebooks() {
+        const result = await api('/api/notebook/lsNotebooks', {}).catch(() => null);
+        return new Set((result?.notebooks || []).filter(box => box.encrypted === false).map(box => box.id));
+    }
+
+    async function captureBlockReminderDeletions(id) {
+        try {
+            const plain = await getUnencryptedReminderNotebooks();
+            if (!plain.size) return [];
+            const rows = await sql(`
+                WITH RECURSIVE reminder_delete_tree(id, depth) AS (
+                    SELECT id, 0 FROM blocks WHERE id = '${escapeSql(id)}'
+                    UNION ALL
+                    SELECT b.id, t.depth + 1 FROM blocks b JOIN reminder_delete_tree t ON b.parent_id = t.id WHERE t.depth < 128
+                )
+                SELECT b.id, b.box, a.value FROM reminder_delete_tree t JOIN blocks b ON b.id = t.id
+                JOIN attributes a ON a.block_id = b.id AND a.name = '${REMINDER_ATTR}' AND a.value != ''
+                LIMIT 20000
+            `);
+            return rows.filter(row => plain.has(row.box)).map(row => ({ id: row.id, reminder: parseJsonObject(row.value) }));
+        } catch (error) {
+            console.warn('[task-horizon] could not capture reminder deletions', error);
+            return [];
+        }
+    }
+
+    const REMINDER_DELETE_OUTBOX = 'reminder-deletion-outbox-v1';
+    const REMINDER_DELETE_FILE_RE = /^\d{14}-[A-Za-z0-9]+--[A-Za-z0-9_-]+\.json$/;
+    const pendingReminderDeletionMarkers = new Map();
+
+    async function writeReminderDeletionMarker(name, at) {
+        const form = new FormData();
+        form.append('path', `/data/storage/petal/${DOCK_TOMATO_PLUGIN_ID}/reminder-deletions-v1/${name}`);
+        form.append('isDir', 'false');
+        form.append('file', new Blob([JSON.stringify({ deleted: true, at })], { type: 'application/json' }));
+        const res = await siyuan.client.fetch('/api/file/putFile', { method: 'POST', body: form });
+        if (!res.ok || Number((await res.json())?.code) !== 0) throw new Error('Could not save reminder deletion marker');
+    }
+
+    async function publishReminderDeletionMarkers(records) {
+        for (const { id, reminder } of records) {
+            if (!ID_RE.test(id) || !reminder) continue;
+            const generation = String(reminder.reminderGeneration || reminder.createdAt || 'legacy')
+                .replace(/[^a-zA-Z0-9-]/g, char => `_${char.charCodeAt(0).toString(16)}_`);
+            const name = `${id}--${generation}.json`;
+            const at = Date.now();
+            try { await writeReminderDeletionMarker(name, at); }
+            catch (error) {
+                try { await writeJson(`${REMINDER_DELETE_OUTBOX}/${name}`, { at }); }
+                catch (queueError) {
+                    pendingReminderDeletionMarkers.set(name, at);
+                    console.warn('[task-horizon] reminder deletion retry is not yet persisted', id, queueError);
+                }
+            }
+        }
+    }
+
+    async function retryReminderDeletionMarkersNow() {
+        const cutoff = recurringSyncCutoff();
+        for (const [name, at] of pendingReminderDeletionMarkers) {
+            try {
+                if (at >= cutoff) await writeJson(`${REMINDER_DELETE_OUTBOX}/${name}`, { at });
+                pendingReminderDeletionMarkers.delete(name);
+            } catch (error) {}
+        }
+        let entries;
+        try { entries = await siyuan.storage.list(REMINDER_DELETE_OUTBOX); }
+        catch (error) { return; }
+        for (const item of entries) {
+            if (item.isDir || item.isSymlink || !REMINDER_DELETE_FILE_RE.test(item.name)) continue;
+            const path = `${REMINDER_DELETE_OUTBOX}/${item.name}`;
+            try {
+                const queued = await readJsonState(path);
+                const at = queued.value?.at;
+                if (queued.status !== 'valid' || !Number.isFinite(at) || at < cutoff) continue;
+                await writeReminderDeletionMarker(item.name, at);
+                await writeJson(path, {});
+            } catch (error) {
+                console.warn('[task-horizon] reminder deletion is pending', item.name, error);
+            }
+        }
+    }
+
+    let reminderDeletionRetryFlight = null;
+    async function retryReminderDeletionMarkers() {
+        if (reminderDeletionRetryFlight) return reminderDeletionRetryFlight;
+        reminderDeletionRetryFlight = retryReminderDeletionMarkersNow();
+        try { await reminderDeletionRetryFlight; } finally { reminderDeletionRetryFlight = null; }
+    }
+
     async function deleteTaskNow(taskID) {
         const id = requireID(taskID, __tmT("kernel.taskId"));
         const row = await getTaskRow(id);
@@ -8631,8 +8933,10 @@
             });
         }
         await api('/api/sqlite/flushTransaction', {});
+        const removedReminders = await captureBlockReminderDeletions(id);
         await api('/api/block/deleteBlock', { id });
         await api('/api/sqlite/flushTransaction', {});
+        await publishReminderDeletionMarkers(removedReminders);
         try {
             await runScheduleLane(async () => {
                 const schedules = await loadSchedules({ allowMissing: true, fresh: true });
@@ -12175,6 +12479,7 @@
         await siyuan.rpc.bind('taskHorizonRegisterDocumentGroupSnapshot', (input) => asResult(() => registerDocumentGroupSnapshot(input || {})));
         await siyuan.rpc.bind('taskHorizonResolveTaskBinding', (blockID) => asResult(() => resolveTaskBinding(blockID)));
         await siyuan.rpc.bind('taskHorizonGetCustomFieldDefinitions', () => asResult(async () => customFieldDefinitions(await getFieldRegistry())));
+        await siyuan.rpc.bind('taskHorizonReconcileRecurringTransitions', () => asResult(reconcileRecurringTransitions));
         await siyuan.rpc.bind('taskHorizonGetTask', (taskID, fields) => asResult(() => getTaskDTO(taskID, fields)));
         await siyuan.rpc.bind('taskHorizonGetTaskPlacement', (taskID) => asResult(() => taskPlacementDTO(taskID)));
         await siyuan.rpc.bind('taskHorizonQueryTasks', (input) => asResult(() => queryTaskRows(input || {})));
@@ -12229,7 +12534,7 @@
 
     const RPC_NAMES = [
         'taskHorizonGetCapabilities', 'taskHorizonSyncMcpEntitlement', 'taskHorizonSetMcpEnabled', 'taskHorizonSetMcpToolConfig', 'taskHorizonRegisterTaskScope', 'taskHorizonResolveTaskBinding', 'taskHorizonGetCustomFieldDefinitions',
-        'taskHorizonGetTask', 'taskHorizonGetTaskPlacement', 'taskHorizonQueryTasks', 'taskHorizonSearchDocuments', 'taskHorizonListTaskScopes', 'taskHorizonMutateTask', 'taskHorizonCreateTask', 'taskHorizonUpdateTask', 'taskHorizonConfigureTaskReminder',
+        'taskHorizonReconcileRecurringTransitions', 'taskHorizonGetTask', 'taskHorizonGetTaskPlacement', 'taskHorizonQueryTasks', 'taskHorizonSearchDocuments', 'taskHorizonListTaskScopes', 'taskHorizonMutateTask', 'taskHorizonCreateTask', 'taskHorizonUpdateTask', 'taskHorizonConfigureTaskReminder',
         'taskHorizonLoadAgentSchedules', 'taskHorizonReplaceAgentSchedules', 'taskHorizonSaveAgentSchedule', 'taskHorizonDeleteAgentSchedule', 'taskHorizonClaimAgentScheduleOccurrence', 'taskHorizonRenewAgentScheduleOccurrence', 'taskHorizonFinishAgentScheduleOccurrence', 'taskHorizonResolveAgentScheduleOutputDocument', 'taskHorizonPersistUiTaskAttrs', 'taskHorizonPersistUiBlockOperation',
         'taskHorizonMoveTask', 'taskHorizonPreviewDeleteTask', 'taskHorizonDeleteTask',
         'taskHorizonLoadSchedules', 'taskHorizonSaveSchedules', 'taskHorizonQuerySchedules',
@@ -12257,9 +12562,14 @@
         await reconcileTools();
     };
 
-    siyuan.plugin.lifecycle.onrunning = function () {};
+    siyuan.plugin.lifecycle.onrunning = function () {
+        void retryReminderDeletionMarkers().catch(error => console.warn('[task-horizon] initial reminder deletion retry failed', error));
+        return startRecurringHistoryCleanup();
+    };
 
     siyuan.plugin.lifecycle.onunload = async function () {
+        if (recurringHistoryCleanupTimer !== null) clearTimeout(recurringHistoryCleanupTimer);
+        recurringHistoryCleanupTimer = null;
         await unregisterTools();
         for (const name of RPC_NAMES) {
             try { await siyuan.rpc.unbind(name); } catch (error) {}

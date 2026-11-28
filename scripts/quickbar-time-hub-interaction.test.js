@@ -98,6 +98,7 @@ async function openFromPointer(attrKey, target = editor, mobileQuickAdd = false)
     assert.equal(opened.taskId, 'task-1');
     assert.equal(opened.trigger, chip);
     assert.equal(opened.options.activeField, attrKey === 'custom-start-date' ? 'startDate' : 'completionTime');
+    assert.equal(opened.options.wait, true, 'Quickbar date edits must wait for the shared task write to finish');
     const handlers = new Map();
     const syntheticClock = { now: 1000 };
     const dismissalContext = vm.createContext({

@@ -40,7 +40,7 @@ function include(name) {
     for (const match of source.matchAll(/\b(__\w+)\s*\(/g)) include(match[1]);
 }
 Object.values(facade).forEach(include);
-const constants = ['__tmMonthRepeatCore', '__TM_LUNAR_MONTH_TEXT_MAP', '__TM_LUNAR_INFO_1900_2049', '__tmChineseCalendarFormatter', '__TM_CHINA_TZ_OFFSET_MINUTES', '__TM_CHINA_TZ_SUFFIX'];
+const constants = ['__tmMonthRepeatCore', '__TM_LUNAR_MONTH_TEXT_MAP', '__TM_LUNAR_INFO_1900_2049', '__TM_LUNAR_YEAR_MONTHS', '__tmChineseCalendarFormatter', '__TM_CHINA_TZ_OFFSET_MINUTES', '__TM_CHINA_TZ_SUFFIX'];
 const declarations = constants.map(name => {
     for (const source of sources) {
         const match = new RegExp(`^    (?:const|let) ${name} = [\\s\\S]*?;`, 'm').exec(source);

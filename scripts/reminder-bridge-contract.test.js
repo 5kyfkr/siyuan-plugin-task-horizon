@@ -39,7 +39,7 @@ const followDraftStart = repeatRuntimeSource.indexOf('async function __tmApplyFo
 const followDraftEnd = repeatRuntimeSource.indexOf('\n    async function __tmClearFollowReminderDraft', followDraftStart);
 assert.ok(followDraftStart >= 0 && followDraftEnd > followDraftStart, 'follow-draft writer must remain extractable');
 const followDraftBlock = repeatRuntimeSource.slice(followDraftStart, followDraftEnd);
-assert.match(followDraftBlock, /__tmApplyTaskMetaPatchWithUndo\(task\.id, \{\s*completionTime,\s*\}/, 'reminder edits may update the current task due date');
+assert.match(followDraftBlock, /__tmApplyTaskMetaPatchWithUndo|tmUpdateTaskDates/, 'reminder edits may update the current task due date');
 assert.doesNotMatch(followDraftBlock, /repeatPatch|repeatRule:\s*source\.|repeatState:\s*source\./, 'reminder edits must not write task-owned repeat fields');
 
 const clearDraftStart = followDraftEnd + 1;

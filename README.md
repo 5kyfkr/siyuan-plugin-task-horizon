@@ -6,14 +6,28 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.9
+
+- **Recurring tasks and reminders**
+  - With an updated Dock Tomato, change a recurring task’s due date from a reminder that follows the task. Choose **This occurrence only** or **This and future occurrences**.
+  - Improve cross-device sync for recurring completions, undos, and rescheduling in unencrypted notebooks. Clear deleted reminders on other devices.
+  - Use the local date for completion-based repeats and fix skipping an occurrence. Lunar repeats on day 30 use the last day of shorter months. Yearly repeats set in a leap month use the regular month when there is no matching leap month that year.
+- **Board sets**
+  - Drop a task onto a card in another sub-board to make it a subtask. Filters still determine which sub-boards show it.
+  - Refresh the board-set dropdown and its current label after syncing.
+- **Calendar** keeps the other dates in weekly and monthly rules when rescheduling this and future occurrences.
+- **Completion dates** now follow your local time zone in the completed-today filter, completed-task groups, and homepage statistics.
+- **Quickbar** waits for date edits to finish saving.
+- **Check-in rewards** now work when you check a task’s checkbox directly in a document.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.8
 
 - **Calendar:** optionally show Pomodoro records in list view (off by default), subject to the calendar master switch and record-type filters. Improve inline schedule time editing.
 - **Task colors:** right-click a task to choose a background color or restore the default. Colors appear in the table, checklist, Kanban, whiteboard, and calendar list. In tables, task colors override document row colors, which can be turned off in Appearance settings.
 - **Focus and estimates:** see the percentage of estimated time or Pomodoros used. Linked, non-recurring schedules with specific times automatically fill and update a task’s duration estimate without overwriting manual estimates. The estimate editor shows where the value came from.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.7
 

@@ -48,8 +48,66 @@ function pluginHarness() {
         if (plugin._taskDataChangedScheduledPromise) await plugin._taskDataChangedScheduledPromise;
         if (plugin._taskDataChangedPromise) await plugin._taskDataChangedPromise;
     };
-    return { plugin, handlers, reloads, emit, settled };
+    return { context, plugin, handlers, reloads, emit, settled };
 }
+
+test('recurring sync reconciliation retries when shared transition files arrive late', async () => {
+    const h = pluginHarness();
+    const delays = [];
+    const reconciled = [];
+    const contextRefreshes = [];
+    let calls = 0;
+    h.context.setTimeout = (callback, delayMs) => {
+        delays.push(delayMs);
+        callback();
+        return delays.length;
+    };
+    h.plugin.kernel = { rpc: { call: { taskHorizonReconcileRecurringTransitions: async () => {
+        calls += 1;
+        return calls === 1
+            ? { ok: true, data: { taskIDs: [] } }
+            : { ok: true, data: { taskIDs: ['task-1'] } };
+    } } } };
+    h.plugin.requestSyncedDataReload = async (...args) => { reconciled.push(args); };
+    h.context.__tomatoReminder = { taskContextChanged: async (...args) => { contextRefreshes.push(args); } };
+
+    await h.plugin.reconcileSyncedRecurringTransitions();
+
+    assert.equal(calls, 2, 'an initially empty transition read should be retried');
+    assert.deepEqual(delays, [700]);
+    assert.equal(reconciled.length, 1);
+    assert.equal(reconciled[0][0], 'sync-merge-result');
+    assert.equal(reconciled[0][1].suppressStorageWrites, true);
+    assert.equal(contextRefreshes.length, 1);
+    assert.equal(contextRefreshes[0][0], 'task-1');
+});
+
+test('plugin-storage sync rechecks a recurring journal that arrived after sync-end', async () => {
+    const h = pluginHarness();
+    h.context.setTimeout = callback => { callback(); return 1; };
+    let journalReady = false;
+    let reconcileCalls = 0;
+    let contextRefreshes = 0;
+    h.plugin.kernel = { rpc: { call: { taskHorizonReconcileRecurringTransitions: async () => {
+        reconcileCalls += 1;
+        return journalReady
+            ? { ok: true, data: { taskIDs: ['task-1'] } }
+            : { ok: true, data: { taskIDs: [] } };
+    } } } };
+    h.plugin.requestSyncedDataReload = async () => true;
+    h.context.__tomatoReminder = { taskContextChanged: async () => { contextRefreshes += 1; } };
+
+    h.emit('sync-end');
+    await h.plugin._recurringSyncFlight;
+    assert.equal(reconcileCalls, 3, 'sync-end performs the bounded delayed reads');
+    journalReady = true;
+
+    await h.plugin.onDataChanged('sync');
+    await h.plugin._recurringSyncFlight;
+
+    assert.equal(reconcileCalls, 4, 'the plugin-storage change causes a fresh read after its payload arrives');
+    assert.equal(contextRefreshes, 1);
+});
 
 test('foreground sync with no incoming changes never loads documents', async () => {
     const h = pluginHarness();

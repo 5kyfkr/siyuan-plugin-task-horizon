@@ -11,6 +11,7 @@ const listSource = read('src/task-horizon/main/task-runtime/53-list-render-and-d
 const modelSource = read('src/task-horizon/main/task-runtime/50-task-model-and-repeat-utils.js');
 const recurringSource = read('src/task-horizon/main/task-runtime/54-recurring-task-runtime.js');
 const apiSource = read('src/task-horizon/main/20-api-and-runtime-services.js');
+const nativeDocHooksSource = read('src/task-horizon/main/shell/72-shell-entrances-and-native-doc-hooks.js');
 
 function extractBetween(source, startNeedle, endNeedle) {
     const start = source.indexOf(startNeedle);
@@ -19,6 +20,17 @@ function extractBetween(source, startNeedle, endNeedle) {
     assert.ok(end > start, `missing boundary ${endNeedle}`);
     return source.slice(start, end).trim();
 }
+
+const rewardDispatchFunction = extractBetween(
+    apiSource,
+    'function __tmDispatchTaskCompletedForReward(',
+    'const __TM_POINTS_PENALTY_LEDGER_KEY',
+);
+const nativeCheckboxSyncFunction = extractBetween(
+    nativeDocHooksSource,
+    'async function __tmSyncNativeDocCheckboxLinkedStatus(',
+    'function __tmDrainNativeDocCheckboxSyncQueue(',
+);
 
 const postCommitFunction = extractBetween(
     listSource,
@@ -71,6 +83,38 @@ const reconcileRuntime = extractBetween(
     'let __tmRecurringDueReconcilePromise = null;',
     'window.tmGetTaskRepeatRule = async function',
 );
+
+function testNativeCheckboxCompletionDispatchesReward() {
+    const events = [];
+    const context = vm.createContext({
+        SettingsStore: { data: { enablePointsRewardIntegration: true } },
+        __tmIsTaskInPointsRewardExcludedGroup: () => false,
+        __tmGetTaskAttrHostId: () => 'task-1',
+        __tmShouldSkipTaskRewardDispatch: () => false,
+        __tmNormalizeTaskRewardContent: (task) => String(task.content || ''),
+        window: { dispatchEvent: (event) => events.push(event) },
+        CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
+    });
+    vm.runInContext(`${rewardDispatchFunction}\nthis.dispatchReward = __tmDispatchTaskCompletedForReward;`, context);
+    const task = { id: 'task-1', root_id: 'doc-1', content: 'Native checkbox task' };
+    assert.match(nativeCheckboxSyncFunction,
+        /if \(!previous\?\.userInitiated \|\| inserted\) \{[\s\S]*?return false;[\s\S]*?__tmRequireTaskMutation\('setDone'\)[\s\S]*?source: 'native-doc-checkbox-sync'/,
+        'the reward-enabled native source must only be used for captured user clicks');
+
+    assert.equal(context.dispatchReward(task, {
+        taskId: 'task-1', source: 'native-doc-checkbox-sync',
+        previousDone: false, nextDone: true, priorityScore: 20,
+    }), true, 'a user completion from the native note checkbox must dispatch its reward');
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'task-horizon:task-completed');
+    assert.equal(events[0].detail.source, 'native-doc-checkbox-sync');
+
+    assert.equal(context.dispatchReward(task, {
+        taskId: 'task-1', source: 'native-doc-checkbox-reconcile',
+        previousDone: false, nextDone: true, priorityScore: 20,
+    }), false, 'background checkbox reconciliation must not dispatch a reward');
+    assert.equal(events.length, 1);
+}
 
 function testPostCommitDefersRecurringReminderSettlementToAdvance() {
     const events = [];
@@ -403,6 +447,7 @@ async function testRecurringFailureSchedulesOneFallbackRefresh() {
 
 
 async function run() {
+    testNativeCheckboxCompletionDispatchesReward();
     testPostCommitDefersRecurringReminderSettlementToAdvance();
     await testCommittedEffectsRewardDoesNotWaitForStaleSqlOrTomato();
     testRecurringInstanceSyncOnlyTouchesLoadedDocuments();

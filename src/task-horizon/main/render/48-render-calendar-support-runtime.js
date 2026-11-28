@@ -1848,16 +1848,13 @@
                 attrPatch.repeatState.fsrsCard.due = __tmBuildLocalNoonDateFromKey(nextEnd).toISOString();
             }
             if (opts.repeatScope === 'future' || opts.repeatScope === 'all') {
-                const anchorDate = nextEnd || nextStart;
-                const anchor = __tmBuildLocalNoonDateFromKey(anchorDate);
-                if (anchor) {
-                    attrPatch.repeatRule = __tmNormalizeTaskRepeatRule({ ...repeatRule, anchorDate,
-                        weekdays: repeatRule.type === 'weekly' ? [anchor.getDay()] : repeatRule.weekdays,
-                        monthDays: repeatRule.monthDays ? [anchor.getDate()] : undefined,
-                        monthWeek: repeatRule.monthWeek ? { ordinal: Math.ceil(anchor.getDate() / 7), weekday: anchor.getDay() } : undefined,
-                    });
-                    delete attrPatch.repeatState.planOverride;
+                const plan = __tmPlanFutureRepeatDates(task, nextEnd || nextStart);
+                if (!plan) throw new Error(__tmT("calendar.editTheMultiDateRuleInRepeatSettingsOr"));
+                if (opts.repeatDateBaseline && plan.baseline !== opts.repeatDateBaseline) {
+                    throw new Error(__tmT("kernel.theTaskHasChangedRefreshAndTryAgain"));
                 }
+                attrPatch.repeatRule = plan.after;
+                delete attrPatch.repeatState.planOverride;
             }
         }
         const refreshReason = String(opts.source || 'calendar-dates').trim() || 'calendar-dates';

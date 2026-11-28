@@ -91,12 +91,10 @@
 
     function __tmGetTaskCompletedAtDateKey(task) {
         const raw = __tmResolveTaskCompletedAtRaw(task, { completedOnly: false });
-        if (!raw) return '';
-        const normalized = __tmNormalizeDateOnly(raw);
-        if (normalized) return normalized;
+        if (!raw || /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        // A timestamp is read as the user's local day; its text is written in UTC+8.
         const ts = __tmParseTimeToTs(raw);
-        if (!Number.isFinite(ts) || ts <= 0) return '';
-        return __tmFormatDateKeyFromDate(new Date(ts));
+        return Number.isFinite(ts) && ts > 0 ? __tmFormatDateKeyFromDate(new Date(ts)) : __tmNormalizeDateOnly(raw);
     }
 
     function __tmIsTaskCompletedToday(task, todayKey = '') {
@@ -1058,7 +1056,7 @@
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         if (!__tmIsRecurringNativeDoneHeld(task)) return '';
         const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
-        const completedDate = __tmNormalizeDateOnly(repeatState.lastCompletedAt || __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }));
+        const completedDate = __tmGetTaskCompletionDateKey(repeatState.lastCompletedAt || __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }));
         if (!completedDate) return '';
         const earliestResetDate = __tmShiftTaskRepeatDateKey(completedDate, 1);
         const nextOccurrenceDate = __tmNormalizeDateOnly(task?.completionTime || '')
@@ -1345,6 +1343,17 @@
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
+    // Completion-based repeats count from the local calendar day of the completion. The stored
+    // timestamp is written in UTC+8, so its date part is only right in that zone.
+    // A date-only value is used as written.
+    function __tmGetTaskCompletionDateKey(value) {
+        const raw = String(value || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        const normalized = __tmNormalizeTaskCompleteAtValue(raw);
+        const date = /^\d{4}-\d{2}-\d{2}[T\s]/.test(normalized) ? new Date(normalized) : null;
+        return date && !Number.isNaN(date.getTime()) ? __tmFormatDateKeyFromDate(date) : __tmNormalizeDateOnly(normalized);
+    }
+
     function __tmBuildLocalNoonDateFromKey(value) {
         const key = __tmNormalizeDateOnly(value);
         if (!key) return null;
@@ -1510,44 +1519,35 @@
         0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0, 0x0aa50, 0x1b255, 0x06d20, 0x0ada0,
     ]);
 
-    function __tmGetTableLunarDateInfo(date) {
-        const year = date.getFullYear();
-        if (year < 1900 || year > 2049) return null;
-        const lunarYearDays = (lunarYear) => {
-            const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
-            if (!Number.isFinite(value)) return 0;
-            let total = 348;
-            for (let mask = 0x8000; mask > 0x8; mask >>= 1) total += (value & mask) ? 1 : 0;
-            const leapMonth = value & 0xf;
-            return total + (leapMonth ? ((value & 0x10000) ? 30 : 29) : 0);
-        };
-        const leapDays = (lunarYear) => {
-            const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
-            return (value & 0xf) ? ((value & 0x10000) ? 30 : 29) : 0;
-        };
-        const monthDays = (lunarYear, month) => {
-            const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
-            return (value & (0x10000 >> month)) ? 30 : 29;
-        };
-        const base = new Date(1900, 0, 31, 12, 0, 0, 0);
-        let offset = Math.floor((date.getTime() - base.getTime()) / 86400000);
-        if (offset < 0) return null;
-        let relatedYear = 1900;
-        while (relatedYear < 2049 && offset >= lunarYearDays(relatedYear)) {
-            offset -= lunarYearDays(relatedYear);
-            relatedYear += 1;
+    const __TM_LUNAR_YEAR_MONTHS = new Map();
+
+    // Months of a table year in calendar order; a leap month follows its regular month.
+    function __tmGetLunarYearMonths(lunarYear) {
+        if (__TM_LUNAR_YEAR_MONTHS.has(lunarYear)) return __TM_LUNAR_YEAR_MONTHS.get(lunarYear);
+        const value = __TM_LUNAR_INFO_1900_2049[lunarYear - 1900];
+        const leapMonth = value & 0xf;
+        const months = [];
+        for (let month = 1; Number.isFinite(value) && month <= 12; month += 1) {
+            months.push({ month, isLeap: false, days: (value & (0x10000 >> month)) ? 30 : 29 });
+            if (month === leapMonth) months.push({ month, isLeap: true, days: (value & 0x10000) ? 30 : 29 });
         }
-        const leapMonth = __TM_LUNAR_INFO_1900_2049[relatedYear - 1900] & 0xf;
-        let month = 1;
-        let isLeap = false;
-        for (let calendarMonth = 1; calendarMonth <= 12 || isLeap; calendarMonth += 1) {
-            const days = isLeap ? leapDays(relatedYear) : monthDays(relatedYear, calendarMonth);
-            if (offset < days) return { relatedYear, month, day: offset + 1, isLeap };
-            offset -= days;
-            if (leapMonth === calendarMonth && !isLeap) isLeap = true;
-            else {
-                if (isLeap) isLeap = false;
-                month += 1;
+        __TM_LUNAR_YEAR_MONTHS.set(lunarYear, months);
+        return months;
+    }
+
+    // Length of a lunar month; 0 when the table has no such month (or no such leap month).
+    function __tmGetLunarMonthDays(lunarYear, month, isLeap) {
+        return __tmGetLunarYearMonths(lunarYear).find((item) => item.month === month && item.isLeap === !!isLeap)?.days || 0;
+    }
+
+    function __tmGetTableLunarDateInfo(date) {
+        // Count calendar days rather than elapsed time: local UTC offsets differ between 1900 and today.
+        let offset = Math.round((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(1900, 0, 31)) / 86400000);
+        if (offset < 0) return null;
+        for (let relatedYear = 1900; relatedYear <= 2049; relatedYear += 1) {
+            for (const { month, isLeap, days } of __tmGetLunarYearMonths(relatedYear)) {
+                if (offset < days) return { relatedYear, month, day: offset + 1, isLeap };
+                offset -= days;
             }
         }
         return null;
@@ -1600,6 +1600,13 @@
         return Number(info.relatedYear) * 12 + Number(info.month) - 1;
     }
 
+    // Leap months only count when the anchor is in a leap month; an anchor on day 30
+    // falls on the last day of a 29-day month instead of skipping it.
+    function __tmIsLunarMonthlyRepeatDay(info, anchorInfo) {
+        if (!info || (info.isLeap && !anchorInfo.isLeap)) return false;
+        return info.day === Math.min(anchorInfo.day, __tmGetLunarMonthDays(info.relatedYear, info.month, info.isLeap) || anchorInfo.day);
+    }
+
     function __tmFindTaskRepeatNextLunarMonthlyDate(baseDate, rule) {
         const base = (baseDate instanceof Date) ? new Date(baseDate.getTime()) : __tmBuildLocalNoonDateFromKey(baseDate);
         const anchor = __tmBuildLocalNoonDateFromKey(rule?.anchorDate) || base;
@@ -1614,9 +1621,7 @@
         const guardLimit = Math.min(130000, Math.max(800, (every + 2) * 34 + 400));
         for (let i = 0; i < guardLimit; i += 1) {
             const info = __tmGetLunarDateInfo(cursor);
-            if (info
-                && info.day === anchorInfo.day
-                && (!info.isLeap || anchorInfo.isLeap)) {
+            if (__tmIsLunarMonthlyRepeatDay(info, anchorInfo)) {
                 const diffMonths = __tmGetLunarMonthIndex(info) - anchorIndex;
                 if (diffMonths > 0 && diffMonths % every === 0) return new Date(cursor.getTime());
             }
@@ -1628,14 +1633,18 @@
     function __tmFindTaskRepeatLunarYearDate(relatedYear, anchorInfo) {
         const year = Math.trunc(Number(relatedYear));
         if (!Number.isFinite(year) || !anchorInfo) return null;
+        // A leap-month anchor uses the regular month in years without that leap month,
+        // and day 30 uses the last day of a 29-day month, so no year is skipped.
+        const isLeap = anchorInfo.isLeap && __tmGetLunarMonthDays(year, anchorInfo.month, true) > 0;
+        const day = Math.min(anchorInfo.day, __tmGetLunarMonthDays(year, anchorInfo.month, isLeap) || anchorInfo.day);
         const start = new Date(year, 0, 1, 12, 0, 0, 0);
         for (let i = 0; i < 430; i += 1) {
             const info = __tmGetLunarDateInfo(start);
             if (info
                 && info.relatedYear === year
                 && info.month === anchorInfo.month
-                && info.day === anchorInfo.day
-                && info.isLeap === anchorInfo.isLeap) {
+                && info.day === day
+                && info.isLeap === isLeap) {
                 return new Date(start.getTime());
             }
             start.setDate(start.getDate() + 1);
@@ -1728,7 +1737,7 @@
         });
         const dateKey = __tmNormalizeDateOnly(cursor.dateKey || rule.anchorDate);
         if (!dateKey || !rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return null;
-        const completionKey = rule.trigger === 'complete' ? __tmNormalizeDateOnly(__tmNormalizeTaskCompleteAtValue(cursor.completedAt || '')) : '';
+        const completionKey = rule.trigger === 'complete' ? __tmGetTaskCompletionDateKey(cursor.completedAt || '') : '';
         if (rule.trigger === 'complete' && !completionKey) return null;
         const nextDateKey = __tmAdvanceTaskRepeatDateKey(completionKey || dateKey, rule);
         if (!nextDateKey || (rule.trigger !== 'complete' && nextDateKey === dateKey)) return null;
@@ -1914,21 +1923,23 @@
         const plannedAnchor = currentState.planOverride
             ? (currentState.planOverride.completionTime || currentState.planOverride.startDate)
             : '';
+        const planStart = plannedAnchor ? currentState.planOverride.startDate : prevStart;
+        const planDue = plannedAnchor ? currentState.planOverride.completionTime : prevDue;
         const fallbackBase = prevDue || prevStart || rule.anchorDate || __tmNormalizeDateOnly(new Date());
         let nextStart = '';
         let nextDue = '';
         {
             const previousAnchor = prevDue || prevStart || fallbackBase;
             const completionKey = rule.trigger === 'complete'
-                ? __tmNormalizeDateOnly(__tmNormalizeTaskCompleteAtValue(options.completedAt || task.taskCompleteAt || task.task_complete_at || ''))
+                ? __tmGetTaskCompletionDateKey(options.completedAt || task.taskCompleteAt || task.task_complete_at || '')
                 : '';
             if (rule.trigger === 'complete' && !completionKey) return null;
             const nextAnchor = __tmAdvanceTaskRepeatDateKey(completionKey || plannedAnchor || previousAnchor, rule);
             if (nextAnchor) {
-                const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(previousAnchor);
+                const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(plannedAnchor || previousAnchor);
                 if (Number.isFinite(deltaDays)) {
-                    nextStart = prevStart ? __tmShiftTaskRepeatDateKey(prevStart, deltaDays) : '';
-                    nextDue = prevDue ? __tmShiftTaskRepeatDateKey(prevDue, deltaDays) : '';
+                    nextStart = planStart ? __tmShiftTaskRepeatDateKey(planStart, deltaDays) : '';
+                    nextDue = planDue ? __tmShiftTaskRepeatDateKey(planDue, deltaDays) : '';
                     if (!prevStart && !prevDue) nextDue = nextAnchor;
                 }
             }
@@ -1937,8 +1948,8 @@
             nextDue = __tmAdvanceTaskRepeatDateKey(fallbackBase, rule);
         }
         if (!nextStart && !nextDue) return null;
-        if (prevStart && !nextStart) return null;
-        if (prevDue && !nextDue) return null;
+        if (planStart && !nextStart) return null;
+        if (planDue && !nextDue) return null;
         const nowIso = String(options.advancedAt || new Date().toISOString()).trim();
         const repeatState = __tmNormalizeTaskRepeatState({
             ...currentState,

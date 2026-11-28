@@ -6,7 +6,7 @@ const vm = require('./i18n-vm-fixture');
 const source = fs.readFileSync(path.join(__dirname, '..', 'homepage.js'), 'utf8');
 const context = vm.createContext({ HTMLElement: class {} });
 vm.runInContext(source.replace('    globalThis.__tmHomepage = {', `
-    globalThis.__homepageStatusTest = { buildOverview, buildGaugeSegments, renderOverviewGauge };
+    globalThis.__homepageStatusTest = { buildOverview, buildGaugeSegments, renderOverviewGauge, resolveTaskDoneKey, resolveTaskDoneMetricKey };
     globalThis.__tmHomepage = {`), context);
 const { buildOverview, buildGaugeSegments, renderOverviewGauge } = context.__homepageStatusTest;
 const todayKey = '2026-09-27';
@@ -90,5 +90,16 @@ const limitedRiskTasks = [
 assert.deepEqual(Array.from(overviewFor(limitedRiskTasks).riskList, (task) => task.id),
     Array.from({ length: 6 }, (_, index) => `active-${index}`),
     'cancelled tasks must not occupy the six available risk reminder slots');
+
+// Completion charts bucket by the local calendar day of the timestamp, not the UTC+8 day in its text.
+const previousZone = process.env.TZ;
+for (const [zone, expected] of [['Asia/Shanghai', '2026-11-30'], ['America/New_York', '2026-11-29'], ['Europe/London', '2026-11-29']]) {
+    process.env.TZ = zone;
+    for (const resolve of [context.__homepageStatusTest.resolveTaskDoneKey, context.__homepageStatusTest.resolveTaskDoneMetricKey]) {
+        assert.equal(resolve({ done: true, taskCompleteAt: '2026-11-30T07:00:00+08:00' }), expected, `completion day in ${zone}`);
+        assert.equal(resolve({ done: true, taskCompleteAt: '2026-11-30' }), '2026-11-30', 'a date-only value is used as written');
+    }
+}
+if (previousZone === undefined) delete process.env.TZ; else process.env.TZ = previousZone;
 
 console.log('homepage task status tests passed');

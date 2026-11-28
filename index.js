@@ -1419,6 +1419,38 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return detail;
     }
 
+    async reconcileSyncedRecurringTransitions() {
+        if (this._recurringSyncFlight) return this._recurringSyncFlight;
+        const reconcile = this.kernel?.rpc?.call?.taskHorizonReconcileRecurringTransitions;
+        if (typeof reconcile !== "function") return;
+        const flight = (async () => {
+            let lastError = null;
+            let previousDelayMs = 0;
+            for (const delayMs of [0, 700, 2200]) {
+                if (delayMs > previousDelayMs) {
+                    await new Promise(resolve => setTimeout(resolve, delayMs - previousDelayMs));
+                    previousDelayMs = delayMs;
+                }
+                try {
+                    const result = await reconcile();
+                    if (result?.ok === false) throw new Error(result.error?.message || "Recurring transition read failed");
+                    const taskIDs = Array.isArray(result?.data?.taskIDs) ? result.data.taskIDs : [];
+                    if (!taskIDs.length) continue;
+                    await this.requestSyncedDataReload("sync-merge-result", { suppressStorageWrites: true });
+                    for (const taskId of taskIDs) {
+                        await globalThis.__tomatoReminder?.taskContextChanged?.(taskId, { reason: "task-context-updated" });
+                    }
+                    return;
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            if (lastError) console.warn("[task-horizon] recurring sync reconciliation failed", lastError);
+        })().catch(error => console.warn("[task-horizon] recurring sync reconciliation failed", error));
+        this._recurringSyncFlight = flight;
+        try { await flight; } finally { this._recurringSyncFlight = null; }
+    }
+
     registerSiyuanSyncStatusListeners() {
         if (this._taskSiyuanSyncHandlers || !this.eventBus?.on) return;
         this.publishSiyuanSyncStatus("synced");
@@ -1430,6 +1462,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this.publishSiyuanSyncStatus("synced");
                 // Completion also fires for upload-only/no-change syncs.
                 // Documents use syncMergeResult; plugin files use onDataChanged.
+                void this.reconcileSyncedRecurringTransitions();
             },
             "sync-fail": () => {
                 this.publishSiyuanSyncStatus("failed");
@@ -1541,9 +1574,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (normalizedReason === 'sync') {
             // Cloud plugin-storage sync needs the same read-only hydration as
             // overwrite and document sync; otherwise refresh persists caches again.
-            return await this.requestSyncedDataReload('sync', {
+            const refreshed = await this.requestSyncedDataReload('sync', {
                 delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
             });
+            // Transition journals can arrive after the document sync-end event.
+            void this.reconcileSyncedRecurringTransitions();
+            return refreshed;
         }
         return await this.requestSyncedDataReload("siyuan-data-changed", {
             delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,

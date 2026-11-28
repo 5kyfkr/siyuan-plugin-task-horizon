@@ -72,7 +72,7 @@ function createHarness(options = {}) {
     initialAttrs.forEach((value, id) => {
         attrs.set(id, { ...(attrs.get(id) || {}), ...((value && typeof value === 'object') ? value : {}) });
     });
-    const storage = new Map([
+    const storage = options.storage || new Map([
         ['agent-mcp-config.json', JSON.stringify({ schemaVersion: 2, enabled: true, tools: {} })],
         ['calendar-events.json', JSON.stringify([{
             id: 'schedule-existing',
@@ -234,7 +234,10 @@ function createHarness(options = {}) {
     }
 
     function query(statement) {
+        const exists = /^SELECT id FROM blocks WHERE id = '([^']+)' LIMIT 1$/.exec(statement);
+        if (exists) return blocks.has(exists[1]) ? [{ id: exists[1] }] : [];
         if (statement.includes('WHERE task.type = \'i\' AND task.subtype = \'t\'')
+            || statement.includes('WITH RECURSIVE reminder_delete_tree')
             || statement.includes('SELECT DISTINCT root_id FROM blocks WHERE id IN')) {
             const db = new DatabaseSync(':memory:');
             try {
@@ -455,6 +458,7 @@ function createHarness(options = {}) {
     }
 
     async function api(pathname, body) {
+        if (pathname === '/api/notebook/lsNotebooks') return { notebooks: [{ id: 'box', encrypted: options.encryptedNotebook === true }] };
         apiCalls.push({ pathname, body: JSON.parse(JSON.stringify(body || {})) });
         if (pathname === '/api/query/sql') {
             const statement = String(body.stmt || '');
@@ -713,9 +717,19 @@ function createHarness(options = {}) {
                 return { async text() { return storage.get(name); } };
             },
             async put(name, content) { storage.set(name, String(content)); },
+            async list(dir) {
+                const files = [...storage.keys()].filter(name => name.startsWith(dir + '/'));
+                if (!files.length) throw new Error('not found');
+                return files.map(name => ({ name: name.slice(dir.length + 1), isDir: false }));
+            },
         },
         client: {
             async fetch(pathname, requestOptions) {
+                if (pathname === '/api/file/putFile' && requestOptions?.body instanceof FormData) {
+                    const file = requestOptions.body.get('file');
+                    apiCalls.push({ pathname, body: { path: requestOptions.body.get('path'), text: await file.text() } });
+                    return { ok: true, status: 200, async json() { return { code: options.failReminderMarker ? -1 : 0 }; } };
+                }
                 const requestBody = JSON.parse(requestOptions?.body || '{}');
                 if (pathname === '/api/plugin/rpc?name=siyuan-plugin-docktomato') {
                     apiCalls.push({ pathname, body: JSON.parse(JSON.stringify(requestBody)), hasSignal: !!requestOptions?.signal });
@@ -738,15 +752,17 @@ function createHarness(options = {}) {
     vm.runInNewContext(source, {
         siyuan,
         console,
-        setTimeout,
+        setTimeout: options.setTimeout || setTimeout,
         clearTimeout,
-        Date,
+        Date: options.Date || Date,
         Math,
         JSON,
         Map,
         Set,
         Promise,
         AbortController,
+        FormData,
+        Blob,
     });
 
     async function start() {
@@ -765,6 +781,7 @@ function createHarness(options = {}) {
         call,
         mcpTools,
         start,
+        startMaintenance: () => siyuan.plugin.lifecycle.onrunning(),
         storage,
         failNextRegistration(name) { failNextToolRegistration = name; },
         failTransactionOnce() { failNextTransaction = true; },

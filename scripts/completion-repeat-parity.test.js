@@ -105,4 +105,13 @@ assert.equal(calendarContext.doesReminderOccurOnDate(independent, '2026-10-11'),
 assert.equal(calendarContext.doesReminderOccurOnDate({ ...independent, maxOccurrences: 1 }, '2026-09-11'), false);
 assert.equal(calendarContext.doesReminderOccurOnDate({ ...independent, endDate: '2026-09-10' }, '2026-09-11'), false);
 assert.equal(calendarContext.getReminderCompletedSet({ ...independent, completedOccurrences: [{ date: '2026-09-11', time: '09:00', occurrenceNumber: 1 }] }).size, 0);
+
+// The completion day is the local calendar day, whatever offset the stored timestamp uses.
+// Kept last: the time zone override applies to the rest of the process.
+const daily = { ...base, type: 'daily' };
+for (const [zone, expected] of [['Asia/Shanghai', '2026-12-01'], ['America/New_York', '2026-11-30'], ['Asia/Tokyo', '2026-12-01']]) {
+    process.env.TZ = zone;
+    assert.equal(core.next(daily, { dateKey: '2026-11-20', completedAt: '2026-11-30T07:00:00+08:00' }).dateKey, expected, `completion day in ${zone}`);
+    assert.equal(core.next(daily, { dateKey: '2026-11-20', completedAt: '2026-11-30' }).dateKey, '2026-12-01', `a date-only completion is used as written in ${zone}`);
+}
 console.log('completion repeat parity tests passed');

@@ -1033,12 +1033,14 @@
         const rule = __tmGetTaskRepeatRule(task);
         if (!rule.enabled || rule.type === 'none') throw new Error(__tmT("task.thisTaskHasNoRecurrence"));
         if (rule.type === 'fsrs') throw new Error(__tmT("task.forFsrsSpacedRepetitionUseAgainToReschedule"));
+        const lastCompletedAt = String(task?.repeatState?.lastCompletedAt || '').trim();
         const nextPatch = __tmBuildTaskRepeatAdvancePatch(task, rule, {
             advancedAt: String(opts.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
-            completedAt: String(task?.repeatState?.lastCompletedAt || '').trim(),
+            // Nothing was completed: a completion-based rule counts its interval from the skipped round's date.
+            completedAt: rule.trigger === 'complete' ? __tmNormalizeDateOnly(task?.completionTime || task?.startDate || '') : lastCompletedAt,
         });
         if (!nextPatch) throw new Error(__tmT("task.noNextOccurrenceAvailableToSkipTo"));
-        nextPatch.repeatState = __tmNormalizeTaskRepeatState({ ...nextPatch.repeatState,
+        nextPatch.repeatState = __tmNormalizeTaskRepeatState({ ...nextPatch.repeatState, lastCompletedAt,
             occurrenceId: __tmCreateMutationOperationId() + '-skip', planOverride: null });
         const sourceStart = __tmNormalizeDateOnly(task?.startDate || '');
         const sourceDue = __tmNormalizeDateOnly(task?.completionTime || '');
@@ -1139,6 +1141,71 @@
         return { rating, completed: completed !== false };
     };
 
+    function __tmPlanFutureRepeatDates(task, completionTime) {
+        const before = __tmGetTaskRepeatRule(task);
+        const target = __tmBuildLocalNoonDateFromKey(completionTime);
+        if (!before.enabled || before.trigger === 'checkin' || !target) return null;
+        const state = __tmNormalizeTaskRepeatState(task.repeatState);
+        const plannedDate = state.planOverride?.completionTime || state.planOverride?.startDate || task.completionTime || task.startDate;
+        const origin = __tmBuildLocalNoonDateFromKey(plannedDate);
+        const patch = { anchorDate: completionTime };
+        if (before.type === 'weekly' && before.weekdays.length) {
+            const originalDay = before.weekdays.length === 1 ? before.weekdays[0] : origin?.getDay();
+            if (!before.weekdays.includes(originalDay)) return null;
+            patch.weekdays = before.weekdays.map(day => day === originalDay ? target.getDay() : day);
+            patch.anchorDate = before.anchorDate; // Keep the original week/month phase for interval > 1.
+        } else if (before.type === 'monthly' && before.monthDays?.length) {
+            const isMonthEnd = date => date && date.getDate() === new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+            const matches = before.monthDays.length === 1 ? before.monthDays
+                : before.monthDays.filter(day => day === -1 ? isMonthEnd(origin) : day === origin?.getDate());
+            if (matches.length !== 1) return null;
+            const originalDay = matches[0];
+            const targetDay = before.monthDays.includes(-1) && isMonthEnd(target) ? -1 : target.getDate();
+            patch.monthDays = before.monthDays.map(day => day === originalDay ? targetDay : day);
+            patch.anchorDate = before.anchorDate;
+        } else if (before.monthWeek) {
+            patch.monthWeek = { ordinal: __tmGetTaskRepeatMonthWeekOrdinal(target), weekday: target.getDay() };
+        }
+        const after = __tmNormalizeTaskRepeatRule({ ...before, ...patch });
+        const baseline = JSON.stringify([before, __tmNormalizeDateOnly(task.startDate), __tmNormalizeDateOnly(task.completionTime), state.occurrenceId || '', state.occurrenceCount, __tmNormalizeDateOnly(plannedDate), completionTime]);
+        return { after, baseline };
+    }
+
+    async function __tmPreviewFollowReminderDateChange({ taskId, taskDraft, completionTime, nextDates = false } = {}) {
+        const task = taskId ? await __tmResolveTaskForRepeat(taskId) : taskDraft;
+        if (!task || !__tmBuildLocalNoonDateFromKey(completionTime)) return null;
+        const currentRule = __tmGetTaskRepeatRule(task);
+        if (!currentRule.enabled || currentRule.trigger === 'checkin') return null;
+        const plan = __tmPlanFutureRepeatDates(task, completionTime);
+        const baseline = taskId ? plan?.baseline || '' : '';
+        // Older Dock Tomato versions still read the rule summaries.
+        if (!nextDates) return plan ? {
+            before: __tmGetTaskRepeatSummary(currentRule),
+            after: __tmGetTaskRepeatSummary(plan.after),
+            baseline,
+        } : null;
+        const state = __tmNormalizeTaskRepeatState(task.repeatState);
+        const previewNextDate = (repeatRule, keepCurrentPlan) => {
+            if (repeatRule.maxOccurrences > 0 && state.occurrenceCount >= repeatRule.maxOccurrences) return { kind: 'none' };
+            if (repeatRule.type === 'fsrs') return { kind: 'review' };
+            if (repeatRule.trigger === 'complete') return { kind: 'completion' };
+            const repeatState = {
+                ...state,
+                planOverride: keepCurrentPlan
+                    ? (state.planOverride || { startDate: task.startDate || '', completionTime: task.completionTime || '' })
+                    : null,
+            };
+            const next = __tmBuildTaskRepeatAdvancePatch({ ...task, completionTime, repeatRule, repeatState }, repeatRule);
+            const date = next?.completionTime || next?.startDate || '';
+            return date ? { kind: 'date', date } : { kind: 'none' };
+        };
+        return {
+            nextOne: previewNextDate(currentRule, true),
+            nextFuture: plan ? previewNextDate(plan.after, false) : null,
+            baseline,
+        };
+    }
+
     async function __tmApplyFollowReminderDraft(payload = {}) {
         const source = (payload && typeof payload === 'object') ? payload : {};
         const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
@@ -1152,20 +1219,43 @@
         const checkin = currentRule?.enabled && currentRule.trigger === 'checkin';
         const completionTime = __tmNormalizeDateOnly(checkin ? task?.completionTime || '' : source.completionTime || '');
         if (!checkin && !completionTime) throw new Error(__tmT("task.theTaskDueDateCannotBeEmpty"));
-        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
-        const completionChanged = __tmNormalizeDateOnly(task?.completionTime || '') !== completionTime;
+        const currentCompletion = __tmNormalizeDateOnly(task?.completionTime || '');
+        const currentStart = __tmNormalizeDateOnly(task?.startDate || '');
+        const repeatScope = source.repeatScope === 'future' || source.repeatScope === 'all' ? 'future' : (source.repeatScope === 'one' ? 'one' : '');
+        if (repeatScope === 'future' && source.repeatDateBaseline
+            && __tmPlanFutureRepeatDates(task, completionTime)?.baseline !== source.repeatDateBaseline) {
+            throw new Error(__tmT("kernel.theTaskHasChangedRefreshAndTryAgain"));
+        }
+        const completionChanged = currentCompletion !== completionTime;
         if (completionChanged) {
-            await __tmApplyTaskMetaPatchWithUndo(task.id, {
-                completionTime,
-            }, {
+            if (repeatScope && currentStart && completionTime < currentStart) {
+                throw new Error(__tmT("calendar.theCompletionDateCannotBeEarlierThanTheStart"));
+            }
+            const datePatch = { completionTime };
+            const mutationOptions = {
                 source: String(source.source || 'tomato-reminder-follow-draft').trim() || 'tomato-reminder-follow-draft',
                 label: __tmT("task.taskReminderLinkage"),
                 refresh: true,
                 refreshCalendar: true,
                 withFilters: true,
                 recordUndo: source.recordUndo !== false,
-            });
+                wait: true,
+                background: false,
+                skipInteractionGate: true,
+            };
+            if (repeatScope) {
+                if (typeof window === 'undefined' || typeof window.tmUpdateTaskDates !== 'function') {
+                    throw new Error(__tmT("task.dateUpdateInterfaceIsNotReady"));
+                }
+                await window.tmUpdateTaskDates(task.id, datePatch, { ...mutationOptions, repeatScope, repeatDateBaseline: source.repeatDateBaseline });
+            } else {
+                await __tmApplyTaskMetaPatchWithUndo(task.id, datePatch, mutationOptions);
+            }
         }
+        const updatedTask = completionChanged
+            ? (await __tmResolveTaskForRepeat(task.id) || { ...task, completionTime })
+            : task;
+        const currentState = __tmNormalizeTaskRepeatState(updatedTask?.repeatState || task?.repeatState);
         let attrHostId = '';
         try { attrHostId = String(__tmGetTaskAttrHostId(task) || '').trim(); } catch (e) {}
         return {
@@ -1173,10 +1263,13 @@
             changed: completionChanged,
             taskId: String(task.id || taskRef).trim() || taskRef,
             attrHostId: attrHostId || String(task.id || taskRef).trim() || taskRef,
-            taskTitle: String(task?.content || task?.raw_content || task?.rawContent || task?.markdown || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
-            startDate: __tmNormalizeDateOnly(task?.startDate || ''),
-            completionTime,
-            repeatRule: currentRule,
+            taskTitle: String(updatedTask?.content || updatedTask?.raw_content || updatedTask?.rawContent || updatedTask?.markdown || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
+            startDate: __tmNormalizeDateOnly(updatedTask?.startDate || currentStart),
+            completionTime: __tmNormalizeDateOnly(updatedTask?.completionTime || completionTime),
+            repeatRule: __tmNormalizeTaskRepeatRule(updatedTask?.repeatRule || currentRule, {
+                startDate: updatedTask?.startDate,
+                completionTime: updatedTask?.completionTime,
+            }),
             repeatState: currentState,
         };
     }
@@ -1260,6 +1353,7 @@
                 return { ok: result !== false, applied: result !== false, completion: result?.completion };
             },
             applyFollowDraft: __tmApplyFollowReminderDraft,
+            previewFollowDateChange: __tmPreviewFollowReminderDateChange,
             clearFollowDraft: __tmClearFollowReminderDraft,
         };
     } catch (e) {}
