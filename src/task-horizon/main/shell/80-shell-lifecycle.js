@@ -1278,7 +1278,6 @@ if (shouldMarkDirty) {
                     __tmTopBarDocumentCaptureHandler = null;
                 }
             } catch (e2) {}
-            try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e2) {}
             __tmTopBarEl = null;
             __tmTopBarClickInFlight = false;
         } catch (e) {}

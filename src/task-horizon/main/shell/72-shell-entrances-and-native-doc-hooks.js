@@ -284,23 +284,6 @@
         }
     }
 
-    function __tmMarkManagedTopBarEntry(el) {
-        if (!(el instanceof HTMLElement)) return null;
-        try { el.setAttribute(__TM_TOPBAR_ENTRY_ATTR, '1'); } catch (e) {}
-        try { if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', __tmT("common.taskManager")); } catch (e) {}
-        try { if (!el.getAttribute('title')) el.setAttribute('title', __tmT("common.taskManager")); } catch (e) {}
-        try { __tmSetUseIcon(el, 'iconTaskHorizon'); } catch (e) {}
-        try { globalThis.__taskHorizonApplyWindowTopBarIdentity?.(el); } catch (e) {}
-        try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
-        return el;
-    }
-
-    function __tmResetTopBarRegistrationState() {
-        try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e) {}
-        __tmTopBarAdded = false;
-        __tmTopBarEl = null;
-    }
-
     function __tmIsTaskHorizonTabHeaderEl(el) {
         if (!(el instanceof Element)) return false;
         const tabId = String(globalThis.__taskHorizonCustomTabId || '').trim();
@@ -492,22 +475,6 @@
         }
     }
 
-    function __tmDeduplicateTopBarEntries(allowRemoval = __tmIsMobileTopBarRegistrationHost()) {
-        const entries = __tmGetTopBarEntries();
-        if (!entries.length) return null;
-        const keeper = (__tmTopBarEl instanceof Element && entries.includes(__tmTopBarEl))
-            ? __tmTopBarEl
-            : entries[0];
-        __tmMarkManagedTopBarEntry(keeper);
-        if (allowRemoval) {
-            entries.forEach((el) => {
-                if (!(el instanceof Element) || el === keeper) return;
-                try { el.remove(); } catch (e) {}
-            });
-        }
-        return keeper instanceof Element ? keeper : null;
-    }
-
     function __tmRemoveTopBarIcon(options = {}) {
         const shouldRemoveDom = options?.removeDom ?? __tmIsMobileTopBarRegistrationHost();
         try {
@@ -523,14 +490,9 @@
             }
         } catch (e) {}
         if (shouldRemoveDom) {
-            try {
-                const entries = __tmGetTopBarEntries();
-                entries.forEach((el) => { try { el.remove(); } catch (e) {} });
-            } catch (e) {}
+            try { globalThis.__taskHorizonPluginInstance?.removeWindowTopBar?.(); } catch (e) {}
         }
-        try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e) {}
         __tmTopBarEl = null;
-        __tmTopBarAdded = false;
     }
 
     function addTopBarIcon() {
@@ -539,96 +501,17 @@
             try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
             return;
         }
-        const isMobileTopBarHost = __tmIsMobileTopBarRegistrationHost();
-        if (!isMobileTopBarHost) {
+        if (!__tmIsMobileTopBarRegistrationHost()) {
             try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
             return;
         }
-        if (isMobileTopBarHost && globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]) {
-            try {
-                const exists = __tmDeduplicateTopBarEntries(true);
-                if (exists) {
-                    __tmTopBarAdded = true;
-                    try { __tmBindMobileTopBarDocumentCapture(); } catch (e2) {}
-                    __tmBindTopBarClickCapture(exists);
-                    return;
-                }
-            } catch (e) {}
-            __tmResetTopBarRegistrationState();
-        }
-        if (__tmTopBarAdded) {
-            if (isMobileTopBarHost) {
-                try {
-                    const exists = __tmDeduplicateTopBarEntries(true);
-                    if (exists) {
-                        try { __tmBindMobileTopBarDocumentCapture(); } catch (e2) {}
-                        __tmBindTopBarClickCapture(exists);
-                        return;
-                    }
-                } catch (e) {}
-                __tmResetTopBarRegistrationState();
-            } else {
-                try {
-                    const exists = __tmDeduplicateTopBarEntries(false);
-                    if (exists) {
-                        __tmSetUseIcon(exists, 'iconTaskHorizon');
-                        __tmBindTopBarClickCapture(exists);
-                        return;
-                    }
-                } catch (e) {}
-                __tmTopBarAdded = false;
-                __tmTopBarEl = null;
-            }
-        }
-        // 尝试通过全局插件实例添加
-        const pluginInstance = globalThis.__taskHorizonPluginInstance || globalThis.__tomatoPluginInstance;
-        if (pluginInstance && typeof pluginInstance.addTopBar === 'function') {
-            // 检查是否已添加（避免重复）
-            // addTopBar 通常由插件管理，我们这里只是尝试调用
-            // 如果已经添加过，思源可能会处理，或者我们可以检查 DOM
-            // 但是 addTopBar 没有 ID 参数，不好检查。
-            // 我们可以检查 aria-label 或 title
-            const exists = __tmDeduplicateTopBarEntries(isMobileTopBarHost);
-            if (exists) {
-                __tmMarkManagedTopBarEntry(exists);
-                if (isMobileTopBarHost) {
-                    try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
-                }
-                try { __tmBindTopBarClickCapture(exists); } catch (e) {}
-                __tmTopBarAdded = true;
-                if (isMobileTopBarHost) {
-                    try { globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY] = true; } catch (e) {}
-                }
-                return;
-            }
-
-            const topBarEl = pluginInstance.addTopBar({
-                icon: "iconTaskHorizon",
-                title: __tmT("common.taskManager"),
-                position: "right",
-                callback: () => {
-                    try { __tmOpenManagerFromTopbarEntry(); } catch (e) {}
-                }
-            });
-            __tmMarkManagedTopBarEntry(topBarEl);
-            const managedTopBarEl = __tmDeduplicateTopBarEntries(isMobileTopBarHost) || topBarEl;
-            if (isMobileTopBarHost) {
-                try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
-            }
-            try { __tmBindTopBarClickCapture(managedTopBarEl); } catch (e) {}
-            __tmTopBarAdded = true;
-            if (isMobileTopBarHost) {
-                try { globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY] = true; } catch (e) {}
-            }
-            setTimeout(() => {
-                try {
-                    const exists = __tmDeduplicateTopBarEntries(isMobileTopBarHost);
-                    try { __tmSetUseIcon(exists, 'iconTaskHorizon'); } catch (e2) {}
-                    try { if (exists) __tmBindTopBarClickCapture(exists); } catch (e2) {}
-                } catch (e) {}
-            }, 0);
-        } else {
-        }
+        const plugin = globalThis.__taskHorizonPluginInstance;
+        plugin?.ensureWindowTopBar?.();
+        const entry = plugin?._taskWindowTopBarElement;
+        if (!(entry instanceof HTMLElement)) return;
+        __tmSetUseIcon(entry, 'iconTaskHorizon');
+        __tmBindMobileTopBarDocumentCapture();
+        __tmBindTopBarClickCapture(entry);
     }
 
     function __tmRefreshShellEntrances() {
@@ -645,7 +528,6 @@
                 liveBreadcrumbBtn ? 1 : 0,
                 mobileTopbarHost ? 1 : 0,
                 shouldWindowTopbar ? 1 : 0,
-                __tmTopBarAdded ? 1 : 0,
                 liveTopbarIcon ? 1 : 0,
                 topbarEntries.length,
             ].join('|');

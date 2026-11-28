@@ -40,6 +40,7 @@ const ICON_ID = "iconTaskHorizon";
 const ENTRY_ICON_PRESET_STORAGE_KEY = "tm_entry_icon_preset";
 const DEFAULT_ENTRY_ICON_PRESET = "classic";
 const WINDOW_TOPBAR_ATTR = "data-task-horizon-window-topbar";
+const MOBILE_TOPBAR_ATTR = "data-task-horizon-topbar";
 const WINDOW_TOPBAR_ID = "task-manager";
 const WINDOW_TOPBAR_ELEMENT_ID = "plugin_siyuan-plugin-task-horizon_task-manager";
 const CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID = "iconTaskHorizonCalendarUpload";
@@ -1287,12 +1288,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this);
         globalThis.__taskHorizonSyncCalendarSubscriptionTopBar = this.syncCalendarSubscriptionTopBar.bind(this);
-        globalThis.__taskHorizonApplyWindowTopBarIdentity = (element) => this.applyStableTopBarIdentity(
-            element,
-            WINDOW_TOPBAR_ELEMENT_ID,
-            WINDOW_TOPBAR_ID,
-            WINDOW_TOPBAR_ENTRY_KEY,
-        );
         globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
@@ -2364,7 +2359,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     getWindowTopBarLookupSelector() {
-        return `[${WINDOW_TOPBAR_ATTR}="1"], [aria-label="${TAB_TITLE}"], [title="${TAB_TITLE}"]`;
+        return `[${WINDOW_TOPBAR_ATTR}="1"], [${MOBILE_TOPBAR_ATTR}="1"], [aria-label="${TAB_TITLE}"], [title="${TAB_TITLE}"]`;
     }
 
     windowTopBarElementHasTaskIcon(element) {
@@ -2382,7 +2377,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (!(element instanceof HTMLElement)) return false;
         if (element === this._taskWindowTopBarElement) return true;
         try {
-            if (element.getAttribute(WINDOW_TOPBAR_ATTR) === "1") {
+            if (element.getAttribute(WINDOW_TOPBAR_ATTR) === "1" || element.getAttribute(MOBILE_TOPBAR_ATTR) === "1") {
                 return this.windowTopBarElementHasTaskIcon(element);
             }
         } catch (e) {}
@@ -2419,6 +2414,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     markWindowTopBarElement(element) {
         if (!(element instanceof HTMLElement)) return null;
         try { element.setAttribute(WINDOW_TOPBAR_ATTR, "1"); } catch (e) {}
+        if (this.isRuntimeMobileClient()) {
+            try { element.setAttribute(MOBILE_TOPBAR_ATTR, "1"); } catch (e) {}
+        }
         try { if (!element.getAttribute("aria-label")) element.setAttribute("aria-label", TAB_TITLE); } catch (e) {}
         try { if (!element.getAttribute("title")) element.setAttribute("title", TAB_TITLE); } catch (e) {}
         this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID, WINDOW_TOPBAR_ID, WINDOW_TOPBAR_ENTRY_KEY);
@@ -2474,8 +2472,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     ensureWindowTopBar() {
         if (typeof this.addTopBar !== "function") return false;
-        const existing = this.reconcileWindowTopBarElements(true);
-        if (existing instanceof HTMLElement && document.contains(existing)) {
+        const mobile = this.isRuntimeMobileClient();
+        // Mobile can register an entry before the drawer exists or while it is unpinned.
+        const hasEntry = (element) => element instanceof HTMLElement
+            && (mobile ? this.topBarIcons?.includes(element) === true : document.contains(element));
+        if (hasEntry(this.reconcileWindowTopBarElements(true))) {
             return true;
         }
         try {
@@ -2489,8 +2490,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 },
             }) || null;
             this.markWindowTopBarElement(this._taskWindowTopBarElement);
-            const reconciled = this.reconcileWindowTopBarElements(true);
-            return reconciled instanceof HTMLElement && document.contains(reconciled);
+            return hasEntry(this.reconcileWindowTopBarElements(true));
         } catch (e) {
             this._taskWindowTopBarElement = null;
             return false;
@@ -3528,7 +3528,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonEnsureCalendarS3Loaded; } catch (e) {}
         try { delete globalThis.__tmCalendarS3Signer; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureCalendarAssets; } catch (e) {}
-        try { delete globalThis.__taskHorizonApplyWindowTopBarIdentity; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}

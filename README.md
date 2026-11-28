@@ -17,6 +17,7 @@ The same plugin includes English and Simplified Chinese. Existing installations 
   - Refresh the board-set dropdown and its current label after syncing.
 - **Calendar** keeps the other dates in weekly and monthly rules when rescheduling this and future occurrences.
 - **Completion dates** now follow your local time zone in the completed-today filter, completed-task groups, and homepage statistics.
+- **Mobile** fixes duplicate Task Horizon entries in the top-bar drawer.
 - **Quickbar** waits for date edits to finish saving.
 - **Check-in rewards** now work when you check a task’s checkbox directly in a document.
 
